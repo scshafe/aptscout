@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 
-from . import config, geocode, scoring
+from . import config, geocode, scoring, weekly
 from .places_api import make_deps
 
 STATUSES = ("interested", "contacted", "toured", "applied", "rejected", "signed")
@@ -103,6 +103,12 @@ def build_router(current_user) -> APIRouter:
             result = scoring.score_apartment(conn, uid, row, request.app.state.router)
             item["place_score"] = result["place_score"]
             item["minutes"] = {c["key"]: c["minutes"] for c in result["categories"]}
+            trips = weekly.weekly_for_apartment(conn, uid, row, request.app.state.router)
+            item["weekly_minutes"] = trips["total"]
+            item["weekly_complete"] = trips["complete"]
+            item["weekly_parts"] = [
+                {"id": p["id"], "round_trip": p["round_trip"], "trips": p["trips"], "weekly": p["weekly"]}
+                for p in trips["destinations"]]
             out.append(item)
         return out
 
@@ -131,6 +137,7 @@ def build_router(current_user) -> APIRouter:
         row = own(conn, uid, apartment_id)
         item = row_to_dict(row)
         item["score"] = scoring.score_apartment(conn, uid, row, request.app.state.router)
+        item["weekly"] = weekly.weekly_for_apartment(conn, uid, row, request.app.state.router)
         item["status_history"] = [dict(r) for r in conn.execute(
             "SELECT status, at FROM apartment_status WHERE apartment_id = ? ORDER BY rowid", (apartment_id,))]
         return item
@@ -140,7 +147,8 @@ def build_router(current_user) -> APIRouter:
         conn, uid = ctx
         row = own(conn, uid, apartment_id)
         merged = {**row_to_dict(row), **body}
-        for key in ("id", "owner_id", "created", "updated", "status_history", "score", "place_score", "minutes"):
+        for key in ("id", "owner_id", "created", "updated", "status_history", "score", "place_score", "minutes",
+                    "weekly", "weekly_minutes", "weekly_complete", "weekly_parts"):
             merged.pop(key, None)
         try:
             checked = ApartmentIn(**merged)
@@ -158,6 +166,7 @@ def build_router(current_user) -> APIRouter:
             conn.execute(f"UPDATE apartment SET {sets}, updated = ? WHERE id = ?", (*sent.values(), now(), apartment_id))
             if moved:
                 conn.execute("DELETE FROM apartment_distance WHERE apartment_id = ?", (apartment_id,))
+                conn.execute("DELETE FROM travel_time WHERE apartment_id = ?", (apartment_id,))
             if "status" in body and values["status"] != row["status"]:
                 conn.execute("INSERT INTO apartment_status (apartment_id, status, at) VALUES (?,?,?)",
                              (apartment_id, values["status"], now()))

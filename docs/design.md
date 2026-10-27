@@ -229,6 +229,14 @@ lines connect which places and gives wrong answers when a trip needs a
 transfer or the stops are on different lines. Use it as the M3 placeholder
 and as the fallback; the schedule-based result replaces it in M5.
 
+M4 constants (in `transit.py`, tunable): rail 30 km/h and bus 15 km/h over the
+straight line times 1.2 (rail) or 1.3 (bus), a 6 minute transfer allowance on
+every ride, no stop farther than 1.6 km, and half a headway of waiting with
+headways by band (rail/bus minutes: rush 5/8, midday 8/12, evening 12/15,
+Saturday 10/15, Sunday 12/18). Walking is chosen when it is quicker. Without
+Valhalla: bike 15 km/h and drive 28 km/h (parking not included) over the
+straight line times 1.3; a drive in the weekday rush is multiplied by 1.3.
+
 ### 4.4 Time of day and the weekly total
 
 Each trip has a **time band**: weekday rush (7–9 am or 5–7 pm, chosen as
