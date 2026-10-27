@@ -7,7 +7,7 @@ export interface MapConfig {
 }
 
 export interface Dataset {
-  status?: "ok" | "expiring" | "expired" | "unknown";
+  status?: string;
   valid_to?: string;
   credit?: string;
   fetched_at?: string;

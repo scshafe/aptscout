@@ -385,6 +385,9 @@
   </aside>
 
   <footer class="foot">
+    {#if datasets.otp_inputs && datasets.otp_inputs.status !== "ok"}
+      <span class="warn">Transit routing graph is {datasets.otp_inputs.status}.</span>
+    {/if}
     {#if cta?.status === "expired"}
       <span class="warn">CTA schedule data expired {cta.valid_to}.</span>
     {:else if cta?.status === "expiring"}

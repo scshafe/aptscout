@@ -219,6 +219,12 @@ a JVM with roughly 2–4 GB RAM to build the graph (once per data change) and
 less to serve. The heavy parts run only when needed: the owner can stop the
 `otp` container and the app falls back to the simpler transit model below.
 
+M5 status: `otp.py` asks OTP's GTFS GraphQL API (`/otp/gtfs/v1`, `plan`) for the best
+itinerary at three departures in the band on a real service date inside the
+feed's validity (Wednesday, Saturday or Sunday) and takes the median. The
+weekday rush is the morning outbound and the evening return. An OTP outage
+or "no route" falls back to the simple model, labelled, and is not cached.
+
 ### 4.3 Transit without OTP (the simple model, Q15 alternative)
 
 Estimate = walk to the nearest useful stop + average wait + in-vehicle time
