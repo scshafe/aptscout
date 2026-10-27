@@ -1,74 +1,78 @@
 # Deploying aptscout
 
-What is built (by the project agent, in this repository) and what only the owner
-session can do. Design: `docs/design.md` section 14.
+aptscout runs on the laptop as an app-owned stack on the runner lane (scshafe
+infra `docs/platform/agent-deploy.md`), at `https://aptscout.<tailnet>/`,
+tailnet only. A merge to `main` deploys it: the `deploy` workflow verifies on
+GitHub, then the laptop's runner (`laptop-aptscout-prod`) calls the host's
+entrypoint, which backs up, builds the `Dockerfile` at the merged commit and
+brings up `deploy/stack/`; a health job checks the result. Watch a deploy with
+`gh run watch`; roll back by merging a revert, or dispatch `deploy.yml` with
+`sha=<older commit on main>` and `allow_rollback=true`. Design: `docs/design.md`
+section 14.
 
-## Built and tested
+## The stack (`deploy/stack/`)
 
-- `Dockerfile`: the server image (the API, the dataset tools, the built web app),
-  non-root, `/data` volume, `/healthz` health check. Built and smoke-tested with
-  rootless docker during M7.
-- `deploy/compose.yml`: the proposed stack: `server`, `jobs`, `nominatim`,
-  `valhalla`, `otp`. A proposal, not tested end to end (see below).
-- `deploy/deploy.workflow.yml.example`: a draft runner-lane workflow.
-- Pocket ID sign-in (`server/aptscout/auth.py`), backup/restore/retention
-  (`backup.py`), the scheduler (`jobs.py`), export/import (`export_api.py`).
+| Service | Container | What |
+| --- | --- | --- |
+| `ts-aptscout` | `ts-aptscout` | The tailnet node `aptscout`: HTTPS on 443 to the app (`serve.json`), no Funnel |
+| `aptscout` | `aptscout` | The app (this repository's image) on `127.0.0.1:8000` in the node's namespace |
+| `jobs` | `aptscout-jobs` | The same image running `python -m aptscout jobs`: nightly backup, weekly CTA feed, monthly OSM extract and Park District list |
+| `nominatim` | `aptscout-nominatim` | Geocoding (mediagis/nominatim 5.3.2), imports the Illinois extract on its first start |
+| `valhalla` | `aptscout-valhalla` | Walking, bike and drive times (valhalla-scripted 3.9.1), builds its tiles from the Illinois extract on its first start |
+| `otp` | `aptscout-otp` | Transit times (OpenTripPlanner 2.10.0): builds its graph from `cache/otp` when there is none or the inputs are newer, then serves it |
+| `tiles` | `aptscout-tiles` | The `pmtiles` CLI (go-pmtiles 1.31.2), profile `tools`: never started by a deploy, run by hand for the basemap |
 
-## Owner steps (nothing here is done by the agent)
+Every image is pinned by version and digest; the app's own image is built from
+the merged commit. The host's `tools/stack` validates the compose file against
+its allowlist before anything runs, and `dev check` runs the same validator.
 
-1. **Runner registration**: register a self-hosted runner for `scshafe/aptscout`
-   on the laptop; set its labels in the workflow.
-2. **Tailnet node**: add `aptscout.<tailnet>.ts.net` in front of the `server`
-   container (HTTPS; the service worker and geolocation need it).
-3. **Pocket ID client**: create an OIDC client with redirect URI
-   `https://aptscout.<tailnet>.ts.net/auth/callback`; give the stack its issuer,
-   client id and client secret. Generate `APTSCOUT_SESSION_SECRET`
-   (`openssl rand -hex 32`). Optionally set `APTSCOUT_ALLOWED_SUBJECTS` to the
-   OIDC subject(s) allowed in.
-4. **Stack review**: turn `deploy/compose.yml` into the infra stack. Decide the
-   host paths (`APTSCOUT_HOST_DATA`, `APTSCOUT_HOST_SERVICES`), pin the
-   `valhalla` image (it is `latest` in the draft), and check the laptop has the
-   RAM and disk the design estimated (about 4 GB RAM for OTP and Nominatim, a few
-   GB of disk).
-5. **Backup destination**: choose where backups go (`APTSCOUT_HOST_BACKUP`),
-   ideally another disk or a location your existing backup covers.
-6. **Flip the lane**: `dev.toml [deploy] lane = "runner"` (and `stack`/`host`),
-   and place the workflow at `.github/workflows/deploy.yml`.
-7. Nothing in this design costs money. If anything in the stack would, stop.
+Sign-in: the app is its own OpenID Connect client of the platform's Pocket ID
+(`server/aptscout/auth.py`), client `aptscout`, redirect
+`https://aptscout.<tailnet>/auth/callback`, and admits only the subjects in
+`APTSCOUT_ALLOWED_SUBJECTS`. The values live in the host's `.env`; `stack.toml
+[env]` names them. `GET /healthz` (no data) is the deploy witness.
 
-## First run on the host
+State, under the runtime directory on the laptop:
+
+| Path | Holds | Backed up |
+| --- | --- | --- |
+| `state/data` | `aptscout.sqlite`, `photos/` (the owner's data) | yes |
+| `state/backup` | the jobs service's nightly SQLite copies and photo mirror (`backup.py`: 14 daily, 6 monthly) | yes |
+| `state/cache` | downloaded and built datasets, mounted at `<data dir>/cache`; `cache/otp` is OTP's base directory | no (rebuildable) |
+| `state/nominatim`, `state/valhalla` | the routing and geocoding stores | no (rebuildable) |
+
+The platform's `stack-backup@aptscout` (nightly, and before every deploy)
+archives `state/data`, `state/backup`, `.env` and the node identity
+(`stack.toml [backup]`), and the PC pulls the archives offsite.
+
+## First run (owner, once, after the first deploy)
+
+Nominatim and Valhalla import the Illinois extract by themselves (an hour or
+more for Nominatim). The jobs service fetches the CTA feed, the OSM extract and
+the Park District list and imports the places on its first start. The rest is
+run in the runtime directory on the laptop, as the stack's owner:
 
 ```sh
-# data directory, as the container user (uid 10001)
-docker compose -f deploy/compose.yml run --rm jobs python -m aptscout fetch-gtfs
-docker compose -f deploy/compose.yml run --rm jobs python -m aptscout fetch-osm
-docker compose -f deploy/compose.yml run --rm jobs python -m aptscout fetch-pools
-docker compose -f deploy/compose.yml run --rm jobs python -m aptscout fetch-assets
-docker compose -f deploy/compose.yml run --rm jobs python -m aptscout import-places
-# tiles need the `pmtiles` tool (go-pmtiles): install a pinned release on the host and
-# run `python -m aptscout build-tiles` where it is on PATH
-docker compose -f deploy/compose.yml run --rm jobs python -m aptscout build-otp-inputs
-# build the OTP graph once, then serve it
-docker compose -f deploy/compose.yml run --rm otp --build --save
-docker compose -f deploy/compose.yml up -d
+docker exec aptscout-jobs python -m aptscout fetch-assets     # basemap fonts and sprites
+docker exec aptscout python -m aptscout build-otp-inputs      # after the jobs service has the OSM extract and the CTA feed
+docker restart aptscout-otp                                    # builds the OTP graph (minutes), then serves it
+# the basemap: cut the city's bbox (server/aptscout/cities/chicago.json) from the
+# newest Protomaps daily build (https://build.protomaps.com/YYYYMMDD.pmtiles)
+docker exec aptscout mkdir -p /data/cache/tiles
+docker compose run --rm -T tiles extract https://build.protomaps.com/<YYYYMMDD>.pmtiles \
+  /cache/tiles/city.pmtiles.part --bbox=-88.0,41.6,-87.5,42.1
+docker exec aptscout mv /data/cache/tiles/city.pmtiles.part /data/cache/tiles/city.pmtiles
+docker exec aptscout python -m aptscout recompute              # once OTP and Valhalla answer
 ```
 
-Nominatim and Valhalla import the Illinois extract themselves on first start
-(minutes to an hour). After a new CTA feed: `build-otp-inputs`, rebuild the OTP
-graph, then `recompute`.
+After a new CTA feed (the jobs service imports it weekly):
+`docker exec aptscout python -m aptscout build-otp-inputs`, `docker restart
+aptscout-otp`, then `recompute`.
 
-## Backup and restore
+## Restore
 
-`python -m aptscout backup` (the `jobs` service runs it nightly) writes a dated
-SQLite copy, mirrors photos, and keeps the newest copy of each of the last 14
-days and of each of the 6 months before. To restore: stop `server`, then
-`python -m aptscout restore <file>` (the current database is kept aside as
-`aptscout.sqlite.before-restore-<time>`), start `server`. Rehearse this once
-before relying on it; the test suite does it on a scratch database.
-
-## Not verified by the agent
-
-The agent cannot reach the laptop, the tailnet or a Pocket ID instance, and has
-not run the Nominatim, Valhalla or OTP containers. Their configuration in
-`compose.yml` follows each image's documented usage and needs a first-run check
-by the owner: the clients are tested against mocked responses only.
+From the app's own nightly copies: stop `aptscout`, then
+`docker exec aptscout-jobs python -m aptscout restore <aptscout-YYYYMMDD-HHMMSS.sqlite>`
+(the current database is kept aside as `aptscout.sqlite.before-restore-<time>`),
+start `aptscout`. From the platform's archives: infra `backup/README.md`
+(state paths owned by the app's uid are restored as root).

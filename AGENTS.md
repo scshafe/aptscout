@@ -20,8 +20,12 @@
 - No service that costs money, needs an account or an API key without the
   owner's approval. Free services are used within their usage policies (for
   example OpenStreetMap tiles, Nominatim and Overpass).
-- Deploying, tailnet nodes, Pocket ID clients and runner registration are the
-  owner session's work: put what you need in the PR and ask.
+- Deployed by the runner lane (`dev.toml [deploy]`): a merge to `main` builds the
+  `Dockerfile` and deploys `deploy/stack/` on the laptop, served on the tailnet
+  only at `https://aptscout.<tailnet>/`; watch it with `gh run watch`
+  (`docs/deploy.md`). The host validates `deploy/stack/` against infra's
+  allowlist. Tailnet nodes, Pocket ID clients, the host's `.env` and the
+  runner are the owner session's work: put what you need in the PR and ask.
 - Public, MIT. CI runs on GitHub: wait for it before merging.
 
 <!-- scshafe-dev:begin landing -->
