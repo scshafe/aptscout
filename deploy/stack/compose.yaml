@@ -10,9 +10,12 @@
 # ports. `dev check` runs the same validator (DEPLOY-04).
 #
 # Sign-in: the app is its own OpenID Connect client of Pocket ID
-# (server/aptscout/auth.py; design section 9), so there is no oauth2-proxy
-# door (host.conf DOOR=none). The app listens on 127.0.0.1:8000 inside the
-# sidecar's namespace, which serve.json proxies to the tailnet over HTTPS.
+# (server/aptscout/auth.py; design section 9), so the stack has no
+# platform door (host.conf DOOR=none). Keep the door's image name out of this
+# file, even in comments: infra's `stack check` greps the compose file for it
+# to decide whether a stack has a door. The app listens on 127.0.0.1:8000
+# inside the sidecar's namespace, which serve.json proxies to the tailnet
+# over HTTPS.
 # Its token exchange reaches the id node over the host's tailnet: the id
 # name is pinned in the sidecar's /etc/hosts (the public resolver cannot
 # answer it), which the app shares with the sidecar's namespace.
