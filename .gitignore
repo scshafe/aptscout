@@ -1,0 +1,28 @@
+# The owner's apartments, rents, rankings and notes never enter git
+# (docs/brief.md): they are runtime data outside the repository. data/ holds
+# only its README; downloaded datasets (OSM extracts, CTA GTFS) stay local.
+/data/*
+!/data/README.md
+/state/
+/backups/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.dump
+.env
+.env.*
+*.log
+
+# Python (repository tests)
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node / web builds
+node_modules/
+dist/
+build/
+.cache/
+
+.DS_Store
