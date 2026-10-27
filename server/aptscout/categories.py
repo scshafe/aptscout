@@ -16,6 +16,11 @@ BUILTIN = [
     ("rail_station", "CTA rail station", "#222222", [], 1),
     ("bus_stop", "CTA bus stop", "#777777", [], 0),
 ]
+# Starting importance (0 to 10) of the shipped categories; 0 means "not scored".
+DEFAULT_WEIGHTS = {
+    "grocery": 8, "gym": 5, "lap_pool": 5, "park": 4, "pharmacy": 3, "library": 2,
+    "rail_station": 7, "bus_stop": 4, "convenience": 0, "cafe": 0, "laundromat": 0,
+}
 BUILTIN_NAMES = {key: name for key, name, *_ in BUILTIN}
 # Categories whose places come from the CTA feed, not OSM (design 3.4).
 TRANSIT = {"rail_station", "bus_stop"}
@@ -85,7 +90,8 @@ def seed_user_categories(conn: sqlite3.Connection, owner_id: int) -> None:
     """Give a new owner the shipped categories (idempotent)."""
     for key, name, colour, _matches, visible in BUILTIN:
         conn.execute(
-            "INSERT OR IGNORE INTO category (owner_id, key, name, colour, builtin, visible) VALUES (?,?,?,?,1,?)",
-            (owner_id, key, name, colour, visible),
+            "INSERT OR IGNORE INTO category (owner_id, key, name, colour, builtin, visible, weight)"
+            " VALUES (?,?,?,?,1,?,?)",
+            (owner_id, key, name, colour, visible, DEFAULT_WEIGHTS.get(key, 0)),
         )
     conn.commit()

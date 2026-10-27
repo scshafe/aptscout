@@ -3,28 +3,48 @@
   import * as maplibregl from "maplibre-gl";
   import type { GeoJSONSourceSpecification } from "maplibre-gl";
   import { Protocol } from "pmtiles";
-  import { getCategories, getConfig, getDatasets, getPlaces, type Category, type Dataset, type MapConfig, type PlaceCollection, type PlaceProps } from "./api";
+  import {
+    getApartment, getApartments, getCategories, getConfig, getDatasets, getPlaces,
+    type Apartment, type ApartmentDetail, type Category, type Dataset, type MapConfig, type PlaceCollection,
+  } from "./api";
+  import { basemapStyle } from "./mapStyle";
   import CategoryPanel from "./CategoryPanel.svelte";
   import PlaceCard from "./PlaceCard.svelte";
   import AddPlace from "./AddPlace.svelte";
-  import { basemapStyle } from "./mapStyle";
+  import ApartmentTable from "./ApartmentTable.svelte";
+  import ApartmentForm from "./ApartmentForm.svelte";
+  import ApartmentDetailView from "./ApartmentDetail.svelte";
+  import Compare from "./Compare.svelte";
 
   type GeoData = GeoJSONSourceSpecification["data"];
+  const STATUS_COLOUR: Record<string, string> = {
+    interested: "#1f78d1", contacted: "#8a56c2", toured: "#e08a00", applied: "#d9531e", rejected: "#888888", signed: "#1b8a3a",
+  };
+
   let container: HTMLDivElement;
   let map: maplibregl.Map | undefined;
+  let marker: maplibregl.Marker | undefined;
   let config = $state<MapConfig>();
   let datasets = $state<Record<string, Dataset>>({});
   let error = $state("");
   let show = $state({ rail: true, bus: false, stops: true });
+  let tab = $state<"apartments" | "places" | "compare">("apartments");
 
   let categories = $state<Category[]>([]);
   let places = $state<PlaceCollection>({ type: "FeatureCollection", features: [] });
-  let selectedId = $state<number>();
-  let placing = $state(false);
-  let pending = $state<{ lng: number; lat: number }>();
+  let apartments = $state<Apartment[]>([]);
+  let selectedPlaceId = $state<number>();
+  let selectedAptId = $state<number>();
+  let detail = $state<ApartmentDetail>();
+  let compare = $state<number[]>([]);
+  let mode = $state<"none" | "place" | "pin">("none");
+  let pendingPlace = $state<{ lng: number; lat: number }>();
+  let form = $state<{ apartment?: Apartment } | undefined>();
+  let formPin = $state<{ lat: number; lon: number }>();
 
   const cta = $derived(datasets.cta_gtfs);
-  const selected = $derived(places.features.find((f) => f.properties.id === selectedId)?.properties);
+  const selectedPlace = $derived(places.features.find((f) => f.properties.id === selectedPlaceId)?.properties);
+  const compared = $derived(compare.map((id) => apartments.find((a) => a.id === id)).filter((a): a is Apartment => !!a));
   const counts = $derived.by(() => {
     const out: Record<string, number> = {};
     for (const f of places.features) {
@@ -48,10 +68,70 @@
     ];
   }
 
-  async function refresh() {
-    [categories, places] = await Promise.all([getCategories(), getPlaces()]);
+  function aptFeatures(): GeoData {
+    return {
+      type: "FeatureCollection",
+      features: apartments.filter((a) => a.lat !== null && a.lon !== null).map((a) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [a.lon!, a.lat!] },
+        properties: { id: a.id, rent: a.rent === null ? "" : "$" + a.rent, colour: STATUS_COLOUR[a.status] ?? "#1f78d1", selected: a.id === selectedAptId },
+      })),
+    };
+  }
+
+  function linkFeatures(): GeoData {
+    const apt = detail;
+    return {
+      type: "FeatureCollection",
+      features: apt && apt.lat !== null
+        ? apt.score.categories.filter((c) => c.place).map((c) => ({
+            type: "Feature" as const,
+            geometry: { type: "LineString" as const, coordinates: [[apt.lon!, apt.lat!], [c.place!.lon, c.place!.lat]] },
+            properties: { name: c.name },
+          }))
+        : [],
+    };
+  }
+
+  function syncMap() {
     (map?.getSource("places") as maplibregl.GeoJSONSource | undefined)?.setData(places as GeoData);
     if (map?.getLayer("places")) map.setFilter("places", placeFilter());
+    (map?.getSource("apartments") as maplibregl.GeoJSONSource | undefined)?.setData(aptFeatures());
+    (map?.getSource("links") as maplibregl.GeoJSONSource | undefined)?.setData(linkFeatures());
+  }
+
+  async function refresh() {
+    [categories, places, apartments] = await Promise.all([getCategories(), getPlaces(), getApartments()]);
+    if (selectedAptId !== undefined) await loadDetail(selectedAptId);
+    syncMap();
+  }
+
+  async function loadDetail(id: number) {
+    try {
+      detail = await getApartment(id);
+    } catch {
+      detail = undefined;
+      selectedAptId = undefined;
+    }
+  }
+
+  async function selectApartment(id: number) {
+    selectedAptId = id;
+    form = undefined;
+    await loadDetail(id);
+    syncMap();
+    const a = apartments.find((x) => x.id === id);
+    if (a?.lat != null && a.lon != null) map?.easeTo({ center: [a.lon, a.lat], duration: 400 });
+  }
+
+  function closeApartment() {
+    selectedAptId = undefined;
+    detail = undefined;
+    syncMap();
+  }
+
+  function toggleCompare(id: number) {
+    compare = compare.includes(id) ? compare.filter((x) => x !== id) : [...compare, id].slice(-4);
   }
 
   function setVisible(layer: string, on: boolean) {
@@ -64,6 +144,25 @@
     setVisible("cta-bus-stops", show.stops && show.bus);
   });
 
+  // The draggable pin is shown while the form is open with a location.
+  $effect(() => {
+    const at = formPin ?? (form?.apartment?.lat != null ? { lat: form.apartment.lat, lon: form.apartment.lon! } : undefined);
+    if (!map || !form || !at) {
+      marker?.remove();
+      marker = undefined;
+      return;
+    }
+    if (!marker) {
+      marker = new maplibregl.Marker({ draggable: true, color: "#d9531e" }).setLngLat([at.lon, at.lat]).addTo(map);
+      marker.on("dragend", () => {
+        const p = marker!.getLngLat();
+        formPin = { lat: p.lat, lon: p.lng };
+      });
+    } else {
+      marker.setLngLat([at.lon, at.lat]);
+    }
+  });
+
   onMount(() => {
     const protocol = new Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -71,8 +170,7 @@
       try {
         config = await getConfig();
         datasets = await getDatasets();
-        categories = await getCategories();
-        places = await getPlaces();
+        [categories, places, apartments] = await Promise.all([getCategories(), getPlaces(), getApartments()]);
       } catch (e) {
         error = "Could not load the map settings. Are you signed in?";
         return;
@@ -89,19 +187,53 @@
       map.on("load", () => {
         addCta(map!);
         addPlaces(map!);
+        addApartments(map!);
       });
       map.on("click", (e) => {
-        if (placing) {
-          pending = { lng: e.lngLat.lng, lat: e.lngLat.lat };
-          placing = false;
+        if (mode === "place") {
+          pendingPlace = { lng: e.lngLat.lng, lat: e.lngLat.lat };
+        } else if (mode === "pin") {
+          formPin = { lat: e.lngLat.lat, lon: e.lngLat.lng };
         }
+        mode = "none";
       });
     })();
     return () => {
+      marker?.remove();
       map?.remove();
       maplibregl.removeProtocol("pmtiles");
     };
   });
+
+  function addApartments(m: maplibregl.Map) {
+    m.addSource("links", { type: "geojson", data: linkFeatures() });
+    m.addLayer({ id: "links", type: "line", source: "links", paint: { "line-color": "#333", "line-width": 1.5, "line-dasharray": [2, 2] } });
+    m.addSource("apartments", { type: "geojson", data: aptFeatures() });
+    m.addLayer({
+      id: "apartments", type: "circle", source: "apartments",
+      paint: {
+        "circle-radius": ["case", ["get", "selected"], 11, 8],
+        "circle-color": ["get", "colour"],
+        "circle-stroke-color": "#fff", "circle-stroke-width": 2,
+      },
+    });
+    if (config?.tiles) {
+      m.addLayer({
+        id: "apartment-rent", type: "symbol", source: "apartments",
+        layout: { "text-field": ["get", "rent"], "text-font": ["Noto Sans Medium"], "text-size": 12, "text-offset": [0, -1.6], "text-allow-overlap": true },
+        paint: { "text-color": "#111", "text-halo-color": "#fff", "text-halo-width": 2 },
+      });
+    }
+    m.on("click", "apartments", (e) => {
+      const f = e.features?.[0];
+      if (f && mode === "none") {
+        tab = "apartments";
+        selectApartment(Number(f.properties?.id));
+      }
+    });
+    m.on("mouseenter", "apartments", () => (m.getCanvas().style.cursor = "pointer"));
+    m.on("mouseleave", "apartments", () => (m.getCanvas().style.cursor = ""));
+  }
 
   function addPlaces(m: maplibregl.Map) {
     m.addSource("places", { type: "geojson", data: places as GeoData });
@@ -116,9 +248,12 @@
       },
     });
     m.on("click", "places", (e) => {
-      if (placing) return;
+      if (mode !== "none") return;
       const f = e.features?.[0];
-      if (f) selectedId = Number(f.properties?.id);
+      if (f) {
+        tab = "places";
+        selectedPlaceId = Number(f.properties?.id);
+      }
     });
     m.on("mouseenter", "places", () => (m.getCanvas().style.cursor = "pointer"));
     m.on("mouseleave", "places", () => (m.getCanvas().style.cursor = ""));
@@ -148,65 +283,124 @@
       filter: ["==", ["get", "kind"], "rail"],
       paint: { "circle-radius": 4, "circle-color": "#fff", "circle-stroke-color": "#222", "circle-stroke-width": 2 },
     });
-    m.on("click", "cta-rail-stops", (e) => {
-      const f = e.features?.[0];
-      if (f) new maplibregl.Popup().setLngLat(e.lngLat).setText(String(f.properties?.name)).addTo(m);
-    });
-    m.on("click", "cta-bus-stops", (e) => {
-      const f = e.features?.[0];
-      if (f) new maplibregl.Popup().setLngLat(e.lngLat).setText(String(f.properties?.name)).addTo(m);
-    });
+    for (const layer of ["cta-rail-stops", "cta-bus-stops"]) {
+      m.on("click", layer, (e) => {
+        const f = e.features?.[0];
+        if (f && mode === "none") new maplibregl.Popup().setLngLat(e.lngLat).setText(String(f.properties?.name)).addTo(m);
+      });
+    }
+  }
+
+  function openForm(apartment?: Apartment) {
+    formPin = undefined;
+    form = { apartment };
+    tab = "apartments";
+  }
+
+  async function saved(id: number) {
+    form = undefined;
+    formPin = undefined;
+    await refresh();
+    await selectApartment(id);
   }
 </script>
 
-<div class="map" bind:this={container}></div>
+<div class="app">
+  <div class="map" bind:this={container}></div>
+  {#if mode !== "none"}<div class="hint">{mode === "pin" ? "Click the map to place the pin" : "Click the map to place the new place"}</div>{/if}
 
-<aside class="panel">
-  <strong>{config?.city ?? "aptscout"}</strong>
-  <label><input type="checkbox" bind:checked={show.rail} /> CTA rail lines</label>
-  <label><input type="checkbox" bind:checked={show.bus} /> CTA bus routes</label>
-  <label><input type="checkbox" bind:checked={show.stops} /> Stops</label>
-  <CategoryPanel {categories} {counts} onchange={refresh} />
-  <button onclick={() => (placing = !placing)}>{placing ? "Click the map…" : "+ Add place"}</button>
-  {#if pending}
-    <AddPlace {categories} at={pending} oncancel={() => (pending = undefined)}
-      oncreated={() => { pending = undefined; refresh(); }} />
-  {/if}
-  {#if selected}
-    <PlaceCard place={selected} onchange={refresh} onclose={() => (selectedId = undefined)} />
-  {/if}
-  {#if error}<p class="warn">{error}</p>{/if}
-  {#if config && !config.tiles}
-    <p class="warn">No basemap tiles yet. Run <code>python -m aptscout build-tiles</code>.</p>
-  {/if}
-</aside>
+  <aside class="side">
+    <header>
+      <strong>{config?.city ?? "aptscout"}</strong>
+      <nav>
+        <button class:on={tab === "apartments"} onclick={() => (tab = "apartments")}>Apartments</button>
+        <button class:on={tab === "compare"} onclick={() => (tab = "compare")}>Compare{compare.length ? ` (${compare.length})` : ""}</button>
+        <button class:on={tab === "places"} onclick={() => (tab = "places")}>Places</button>
+      </nav>
+    </header>
+    {#if error}<p class="warn">{error}</p>{/if}
 
-<footer class="foot">
-  {#if cta?.status === "expired"}
-    <span class="warn">CTA schedule data expired {cta.valid_to}.</span>
-  {:else if cta?.status === "expiring"}
-    <span class="warn">CTA schedule data ends {cta.valid_to}.</span>
-  {:else if cta?.valid_to}
-    CTA schedule valid to {cta.valid_to}.
-  {:else}
-    CTA data not imported.
-  {/if}
-  Data provided by Chicago Transit Authority (scheduled service, not guaranteed accurate; aptscout is not
-  affiliated with the CTA). Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>.
-</footer>
+    {#if tab === "apartments"}
+      {#if form}
+        <ApartmentForm
+          apartment={form.apartment} pin={formPin}
+          onpickpin={() => (mode = "pin")} onsaved={saved} oncancel={() => { form = undefined; formPin = undefined; }}
+        />
+      {:else if detail}
+        <ApartmentDetailView apt={detail} onclose={closeApartment} onedit={() => openForm(apartments.find((a) => a.id === detail!.id))}
+          ondeleted={() => { closeApartment(); refresh(); }} />
+      {:else}
+        <button class="primary" onclick={() => openForm()}>+ Add apartment</button>
+      {/if}
+      {#if !form}
+        <ApartmentTable {apartments} {categories} selectedId={selectedAptId} {compare} onselect={selectApartment} oncompare={toggleCompare} />
+      {/if}
+    {:else if tab === "compare"}
+      <Compare apartments={compared} onremove={toggleCompare} />
+    {:else}
+      <div class="layers">
+        <label><input type="checkbox" bind:checked={show.rail} /> CTA rail lines</label>
+        <label><input type="checkbox" bind:checked={show.bus} /> CTA bus routes</label>
+        <label><input type="checkbox" bind:checked={show.stops} /> Stops</label>
+      </div>
+      <CategoryPanel {categories} {counts} onchange={refresh} />
+      <button onclick={() => (mode = mode === "place" ? "none" : "place")}>{mode === "place" ? "Click the map…" : "+ Add place"}</button>
+      {#if pendingPlace}
+        <AddPlace {categories} at={pendingPlace} oncancel={() => (pendingPlace = undefined)}
+          oncreated={() => { pendingPlace = undefined; refresh(); }} />
+      {/if}
+      {#if selectedPlace}
+        <PlaceCard place={selectedPlace} onchange={refresh} onclose={() => (selectedPlaceId = undefined)} />
+      {/if}
+      {#if config && !config.tiles}
+        <p class="warn">No basemap tiles yet. Run <code>python -m aptscout build-tiles</code>.</p>
+      {/if}
+    {/if}
+  </aside>
+
+  <footer class="foot">
+    {#if cta?.status === "expired"}
+      <span class="warn">CTA schedule data expired {cta.valid_to}.</span>
+    {:else if cta?.status === "expiring"}
+      <span class="warn">CTA schedule data ends {cta.valid_to}.</span>
+    {:else if cta?.valid_to}
+      CTA schedule valid to {cta.valid_to}.
+    {:else}
+      CTA data not imported.
+    {/if}
+    Data provided by Chicago Transit Authority (scheduled service, not guaranteed accurate; aptscout is not
+    affiliated with the CTA). Map data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>.
+  </footer>
+</div>
 
 <style>
-  .map { position: fixed; inset: 0; }
-  .panel {
-    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 8px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-    padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; width: min(300px, calc(100vw - 80px));
-    max-height: calc(100vh - 80px); overflow-y: auto;
+  .app {
+    position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 480px);
+    grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "map side" "foot foot";
+  }
+  .map { grid-area: map; position: relative; }
+  .side {
+    grid-area: side; overflow-y: auto; padding: 8px 12px; background: var(--bg); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 8px;
   }
   .foot {
-    position: fixed; left: 0; right: 0; bottom: 0; padding: 4px 8px calc(env(safe-area-inset-bottom, 0px) + 4px);
+    grid-area: foot; padding: 4px 8px calc(env(safe-area-inset-bottom, 0px) + 4px);
     background: var(--panel); border-top: 1px solid var(--line); font-size: 11px; color: var(--muted);
+  }
+  header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
+  nav { display: flex; gap: 4px; }
+  nav button.on { background: var(--fg); color: var(--bg); }
+  .primary { align-self: flex-start; }
+  .layers { display: flex; flex-direction: column; gap: 2px; }
+  .hint {
+    position: absolute; left: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px); z-index: 2;
+    background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; border-radius: 6px;
   }
   .warn { color: var(--warn); margin: 0; }
   label { display: flex; gap: 6px; align-items: center; }
+  :global(button) { min-height: 32px; }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 45vh) minmax(0, 1fr) auto; grid-template-areas: "map" "side" "foot"; }
+    .side { border-left: 0; border-top: 1px solid var(--line); }
+  }
 </style>
