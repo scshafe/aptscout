@@ -16,6 +16,7 @@
   import ApartmentDetailView from "./ApartmentDetail.svelte";
   import Compare from "./Compare.svelte";
   import DestinationsPanel from "./DestinationsPanel.svelte";
+  import DataPanel from "./DataPanel.svelte";
   import type { WhatIf } from "./weeklyMath";
   import { discard, flush, load as loadQueue, type Queued } from "./offline";
   import { addApartment } from "./api";
@@ -32,7 +33,7 @@
   let datasets = $state<Record<string, Dataset>>({});
   let error = $state("");
   let show = $state({ rail: true, bus: false, stops: true });
-  let tab = $state<"apartments" | "trips" | "places" | "compare">("apartments");
+  let tab = $state<"apartments" | "trips" | "places" | "compare" | "data">("apartments");
 
   let categories = $state<Category[]>([]);
   let places = $state<PlaceCollection>({ type: "FeatureCollection", features: [] });
@@ -357,6 +358,7 @@
         <button class:on={tab === "trips"} onclick={() => (tab = "trips")}>Trips{destinations.length ? ` (${destinations.length})` : ""}</button>
         <button class:on={tab === "compare"} onclick={() => (tab = "compare")}>Compare{compare.length ? ` (${compare.length})` : ""}</button>
         <button class:on={tab === "places"} onclick={() => (tab = "places")}>Places</button>
+        <button class:on={tab === "data"} onclick={() => (tab = "data")}>Data</button>
       </nav>
     </header>
     {#if error}<p class="warn">{error}</p>{/if}
@@ -394,6 +396,8 @@
       <DestinationsPanel {destinations} {categories} {whatIf} pin={formPin} onwhatif={setWhatIf}
         onpickpin={() => (mode = "pin")} onchange={refresh}
         onedit={(on) => { editingDest = on; if (!on) formPin = undefined; }} />
+    {:else if tab === "data"}
+      <DataPanel onimported={refresh} />
     {:else if tab === "compare"}
       <Compare apartments={compared} onremove={toggleCompare} />
     {:else}

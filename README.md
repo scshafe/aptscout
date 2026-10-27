@@ -10,6 +10,7 @@ and how: CTA, walking, biking or driving). A web app on the tailnet.
 - Brief: [docs/brief.md](docs/brief.md). Design: [docs/design.md](docs/design.md) (accepted).
 - [web/](web/): the map and comparison UI.
 - [server/](server/): the API and the apartment store.
+- [docs/deploy.md](docs/deploy.md): what is built for deployment and the owner's steps.
 - [data/](data/): the external datasets the app uses (nothing committed yet).
 
 Your saved apartments, rents, rankings and notes are runtime data on the
