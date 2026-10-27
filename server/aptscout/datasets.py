@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from . import config, db, gtfs, importer
+from . import clip, config, db, gtfs, importer, recompute
 
 USER_AGENT = "aptscout/0.1 (self-hosted apartment map; +https://github.com/scshafe/aptscout)"
 EXPIRY_WARNING_DAYS = 14
@@ -35,7 +35,7 @@ def read_versions() -> dict:
 
 def record(name: str, **info) -> None:
     versions = read_versions()
-    versions[name] = {**info, "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    versions[name] = {**info, "fetched_at": datetime.now(timezone.utc).isoformat(timespec="microseconds")}
     path = _versions_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(versions, indent=2, sort_keys=True), encoding="utf-8")
@@ -210,11 +210,34 @@ def import_places(city: dict) -> str:
     return "\n".join(lines)
 
 
+def build_otp_inputs(city: dict) -> str:
+    """Assemble OpenTripPlanner's input directory: the clipped streets, the CTA feed and a build config.
+
+    OTP itself (graph build and serving) runs in the stack; rebuild its graph
+    after this command, and after every `fetch-gtfs` that brings a new feed.
+    """
+    cache = config.cache_dir()
+    pbf, feed = cache / "osm" / "extract.osm.pbf", cache / "cta" / "google_transit.zip"
+    for needed, command in ((pbf, "fetch-osm"), (feed, "fetch-gtfs")):
+        if not needed.exists():
+            raise RuntimeError(f"{needed.name} is missing; run {command} first")
+    out = cache / "otp"
+    out.mkdir(parents=True, exist_ok=True)
+    counts = clip.clip(pbf, out / "streets.osm.pbf", city["bbox"])
+    shutil.copyfile(feed, out / "cta-gtfs.zip")
+    (out / "build-config.json").write_text(json.dumps({"transitModelTimeZone": city["timezone"]}, indent=2), encoding="utf-8")
+    record("otp_inputs", cta_fetched_at=read_versions().get("cta_gtfs", {}).get("fetched_at"), **counts)
+    return f"OTP inputs ready in {out}: {counts}; rebuild the OTP graph"
+
+
 def status() -> dict:
     versions = read_versions()
     cta = versions.get("cta_gtfs")
     if cta:
         cta["status"] = feed_status(cta.get("valid_to"))
+        graph = versions.get("otp_inputs")
+        if graph:
+            graph["status"] = "ok" if graph.get("cta_fetched_at") == cta.get("fetched_at") else "older than the CTA feed"
     return versions
 
 
@@ -227,6 +250,8 @@ def main(argv: list[str]) -> int:
         "fetch-osm": fetch_osm,
         "fetch-pools": fetch_pools,
         "import-places": import_places,
+        "build-otp-inputs": build_otp_inputs,
+        "recompute": lambda c: recompute.run(),
     }
     if len(argv) != 1 or argv[0] not in (*commands, "status"):
         print("usage: python -m aptscout <" + "|".join((*commands, "status")) + ">", file=sys.stderr)

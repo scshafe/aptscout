@@ -43,7 +43,7 @@
         {#each apt.weekly.destinations as d (d.id)}
           <tr class:over={d.over_budget}>
             <td>{d.name}{d.over_budget ? ` (over ${d.max_minutes} min)` : ""}</td>
-            <td>{d.place?.name ?? d.note}{d.place && d.note ? ` (${d.note})` : ""} · {d.mode === "transit" ? "CTA" : d.mode}{d.method?.startsWith("estimate") ? " est." : ""}</td>
+            <td>{d.place?.name ?? d.note}{d.place && d.note ? ` (${d.note})` : ""} · {d.mode === "transit" ? "CTA" : d.mode}{d.method?.startsWith("estimate:fallback") ? " est. (schedule router down)" : d.method?.startsWith("estimate") ? " est." : d.method === "otp" ? " by schedule" : ""}</td>
             <td>{d.round_trip === null ? "–" : d.round_trip + "′"}</td>
             <td>{d.trips}</td>
             <td>{d.weekly === null ? "–" : hoursMinutes(d.weekly)}</td>
@@ -56,7 +56,10 @@
         {#if d.weekly}<span style:flex={d.weekly} style:opacity={1 - (i % 5) * 0.16} title="{d.name}: {hoursMinutes(d.weekly)}"></span>{/if}
       {/each}
     </div>
-    <p class="meta">Times are estimates from straight-line distances until schedule-based routing is added. Scheduled service only; delays are not modelled.</p>
+    <p class="meta">
+      {#if apt.weekly.destinations.some((d) => d.method?.startsWith("estimate"))}Rows marked "est." come from straight-line distances, not the timetable. {/if}
+      Transit uses the published schedule; delays are not modelled.
+    </p>
   {/if}
 
   <h4>Place score {apt.score.place_score ?? "–"}</h4>

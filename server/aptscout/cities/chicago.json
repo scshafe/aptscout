@@ -16,5 +16,6 @@
   "protomaps_builds": "https://build.protomaps.com/",
   "assets_ref": "028c18f713baecad011301ff7a69acc39bcc2ae7",
   "osm_extract_url": "https://download.geofabrik.de/north-america/us/illinois-latest.osm.pbf",
-  "pools_url": "https://data.cityofchicago.org/resource/y7qa-tvqx.json"
+  "pools_url": "https://data.cityofchicago.org/resource/y7qa-tvqx.json",
+  "timezone": "America/Chicago"
 }

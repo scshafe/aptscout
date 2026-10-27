@@ -103,7 +103,7 @@ def build_router(current_user) -> APIRouter:
             result = scoring.score_apartment(conn, uid, row, request.app.state.router)
             item["place_score"] = result["place_score"]
             item["minutes"] = {c["key"]: c["minutes"] for c in result["categories"]}
-            trips = weekly.weekly_for_apartment(conn, uid, row, request.app.state.router)
+            trips = weekly.weekly_for_apartment(conn, uid, row, request.app.state.router, request.app.state.otp)
             item["weekly_minutes"] = trips["total"]
             item["weekly_complete"] = trips["complete"]
             item["weekly_parts"] = [
@@ -137,7 +137,7 @@ def build_router(current_user) -> APIRouter:
         row = own(conn, uid, apartment_id)
         item = row_to_dict(row)
         item["score"] = scoring.score_apartment(conn, uid, row, request.app.state.router)
-        item["weekly"] = weekly.weekly_for_apartment(conn, uid, row, request.app.state.router)
+        item["weekly"] = weekly.weekly_for_apartment(conn, uid, row, request.app.state.router, request.app.state.otp)
         item["status_history"] = [dict(r) for r in conn.execute(
             "SELECT status, at FROM apartment_status WHERE apartment_id = ? ORDER BY rowid", (apartment_id,))]
         return item
