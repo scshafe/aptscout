@@ -1,7 +1,8 @@
 # aptscout: design
 
-Status: proposal for the owner's review. Nothing past the skeleton is built
-until the owner accepts it. `docs/brief.md` is fixed and is the source of the
+Status: **accepted by the owner on 2026-10-27, as written, with all 22 Owner
+decisions taken as recommended.** Planned-work PRs for the milestones are
+approved; a new design decision goes back to the owner. `docs/brief.md` is fixed and is the source of the
 requirements; this document answers its open questions (numbers in
 parentheses, such as Q4, refer to them). Every choice the owner must confirm
 is collected in [Owner decisions](#owner-decisions) at the end.
@@ -614,27 +615,27 @@ Each milestone is a PR (or a few), verified by `./scripts/verify` and
 Each row: my recommendation first, the main alternative second. The brief's
 question number is in the first column's parentheses.
 
-| # | Decision | Recommendation | Main alternative |
-| --- | --- | --- | --- |
-| 1 | Map tiles and library (Q1) | Self-hosted Protomaps PMTiles with MapLibre GL JS | Leaflet with OSM's raster tiles under their usage policy (simpler, third-party dependent) |
-| 2 | Place data source (Q2) | OSM from a local Geofabrik extract, refreshed monthly | Live Overpass queries (no extract to manage; rate-limited, less reproducible) |
-| 3 | Lap pool method (Q2) | OSM candidates + Park District seed + owner confirm/reject, others added by hand | OSM only, plus manual entry (less setup, more manual work) |
-| 4 | First categories and owner-defined ones (Q2) | Grocery, gym, lap pool, transit first; others (park, pharmacy, cafe, library, laundromat) as rows; owner can add categories and places | Fixed list in v1, custom categories later |
-| 5 | CTA data and realtime (Q3) | Static GTFS only, weekly refresh check with an expiry banner; no realtime | Add Bus Tracker/Train Tracker later (needs API keys, an account) |
-| 6 | Distance measure (Q4) | Per category: walk time by default, straight line for parks/cafes | Straight line everywhere (no routing service) |
-| 7 | Routing engines (Q4, Q15) | Valhalla for walk/bike/drive; OpenTripPlanner 2 on the CTA GTFS for transit (M5), simple model first | Simple transit model only; or OSRM instead of Valhalla |
-| 8 | Privacy: may the owner's addresses go to outside services? (Q12) | No: self-hosted Nominatim, Valhalla, OTP, tiles | Allow the US Census geocoder or public Nominatim for geocoding (less to run) |
-| 9 | Users and sharing (Q8) | Pocket ID, single user, `owner_id` kept so a partner can be added | Two users with a shared workspace from the start |
-| 10 | Time of day and round trips (Q15) | Per-trip time band, a return band, median over a few departures; drive free-flow with an optional multiplier | One fixed weekday-morning time for everything |
-| 11 | Which place a category trip uses (Q16) | Best by travel time among the 10 nearest, per-destination choice of nearest, favourite or mean of N | Always the nearest by straight line |
-| 12 | Weekly time versus rankings and rent (Q5, Q17) | Separate sortable columns, default sort by weekly time; an optional combined score with three sliders | One combined score always on; or weekly time only with the rest as filters |
-| 13 | Category scoring (Q5) | Weight 0–10, target and maximum distance per category, nearest or nearest N or favourite | Rank-order only (no thresholds) |
-| 14 | Apartment fields and statuses (Q6) | The field list in section 7 including facing as a set of compass points; status interested/contacted/toured/applied/rejected/signed; photos optional at M6 | Fewer fields in v1, no photos |
-| 15 | Geocoder (Q6) | Self-hosted Nominatim with a draggable pin | US Census geocoder |
-| 16 | Phone use (Q9) | Responsive PWA with offline cache and queued add-on-the-spot | Responsive web page only, online |
-| 17 | Storage and backup (Q10) | SQLite in the laptop's data directory, nightly online backup (14 daily, 6 monthly) to a place you name, JSON/CSV export | PostgreSQL/PostGIS; or backups left to your existing tooling |
-| 18 | Stack (Q13) | Python/FastAPI server; TypeScript, Vite, Svelte and MapLibre web | Node/TypeScript end to end; or React for the web |
-| 19 | Chicago only? (Q14) | Chicago-only in the UI, city settings in a config for later | Multi-city from the start |
-| 20 | Deploy (Q11) | Runner lane, stack with server/valhalla/nominatim/otp, images from CI to GHCR (free) or built on the runner; you do the runner, node, Pocket ID client and stack | Build and run on the laptop by hand until later |
-| 21 | Laptop resources (Q4, Q15) | Accept ~4 GB RAM and a few GB disk for routing and geocoding, measured at M3/M5 | Cap resources: simple models only, no OTP |
-| 22 | Milestones (Q18) | M0–M7 as in section 15, with travel time at M4/M5 | Reorder: weekly time before the apartment table |
+| # | Decision | Recommendation | Main alternative | Outcome |
+| --- | --- | --- | --- | --- |
+| 1 | Map tiles and library (Q1) | Self-hosted Protomaps PMTiles with MapLibre GL JS | Leaflet with OSM's raster tiles under their usage policy (simpler, third-party dependent) | Accepted (recommendation) |
+| 2 | Place data source (Q2) | OSM from a local Geofabrik extract, refreshed monthly | Live Overpass queries (no extract to manage; rate-limited, less reproducible) | Accepted (recommendation) |
+| 3 | Lap pool method (Q2) | OSM candidates + Park District seed + owner confirm/reject, others added by hand | OSM only, plus manual entry (less setup, more manual work) | Accepted (recommendation) |
+| 4 | First categories and owner-defined ones (Q2) | Grocery, gym, lap pool, transit first; others (park, pharmacy, cafe, library, laundromat) as rows; owner can add categories and places | Fixed list in v1, custom categories later | Accepted (recommendation) |
+| 5 | CTA data and realtime (Q3) | Static GTFS only, weekly refresh check with an expiry banner; no realtime | Add Bus Tracker/Train Tracker later (needs API keys, an account) | Accepted (recommendation) |
+| 6 | Distance measure (Q4) | Per category: walk time by default, straight line for parks/cafes | Straight line everywhere (no routing service) | Accepted (recommendation) |
+| 7 | Routing engines (Q4, Q15) | Valhalla for walk/bike/drive; OpenTripPlanner 2 on the CTA GTFS for transit (M5), simple model first | Simple transit model only; or OSRM instead of Valhalla | Accepted (recommendation) |
+| 8 | Privacy: may the owner's addresses go to outside services? (Q12) | No: self-hosted Nominatim, Valhalla, OTP, tiles | Allow the US Census geocoder or public Nominatim for geocoding (less to run) | Accepted (recommendation) |
+| 9 | Users and sharing (Q8) | Pocket ID, single user, `owner_id` kept so a partner can be added | Two users with a shared workspace from the start | Accepted (recommendation) |
+| 10 | Time of day and round trips (Q15) | Per-trip time band, a return band, median over a few departures; drive free-flow with an optional multiplier | One fixed weekday-morning time for everything | Accepted (recommendation) |
+| 11 | Which place a category trip uses (Q16) | Best by travel time among the 10 nearest, per-destination choice of nearest, favourite or mean of N | Always the nearest by straight line | Accepted (recommendation) |
+| 12 | Weekly time versus rankings and rent (Q5, Q17) | Separate sortable columns, default sort by weekly time; an optional combined score with three sliders | One combined score always on; or weekly time only with the rest as filters | Accepted (recommendation) |
+| 13 | Category scoring (Q5) | Weight 0–10, target and maximum distance per category, nearest or nearest N or favourite | Rank-order only (no thresholds) | Accepted (recommendation) |
+| 14 | Apartment fields and statuses (Q6) | The field list in section 7 including facing as a set of compass points; status interested/contacted/toured/applied/rejected/signed; photos optional at M6 | Fewer fields in v1, no photos | Accepted (recommendation) |
+| 15 | Geocoder (Q6) | Self-hosted Nominatim with a draggable pin | US Census geocoder | Accepted (recommendation) |
+| 16 | Phone use (Q9) | Responsive PWA with offline cache and queued add-on-the-spot | Responsive web page only, online | Accepted (recommendation) |
+| 17 | Storage and backup (Q10) | SQLite in the laptop's data directory, nightly online backup (14 daily, 6 monthly) to a place you name, JSON/CSV export | PostgreSQL/PostGIS; or backups left to your existing tooling | Accepted (recommendation) |
+| 18 | Stack (Q13) | Python/FastAPI server; TypeScript, Vite, Svelte and MapLibre web | Node/TypeScript end to end; or React for the web | Accepted (recommendation) |
+| 19 | Chicago only? (Q14) | Chicago-only in the UI, city settings in a config for later | Multi-city from the start | Accepted (recommendation) |
+| 20 | Deploy (Q11) | Runner lane, stack with server/valhalla/nominatim/otp, images from CI to GHCR (free) or built on the runner; you do the runner, node, Pocket ID client and stack | Build and run on the laptop by hand until later | Accepted (recommendation) |
+| 21 | Laptop resources (Q4, Q15) | Accept ~4 GB RAM and a few GB disk for routing and geocoding, measured at M3/M5 | Cap resources: simple models only, no OTP | Accepted (recommendation) |
+| 22 | Milestones (Q18) | M0–M7 as in section 15, with travel time at M4/M5 | Reorder: weekly time before the apartment table | Accepted (recommendation) |
