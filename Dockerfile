@@ -1,12 +1,16 @@
 # aptscout server image: the API, the dataset tools and the built web app.
-FROM node:24-slim AS web
+# Base images pinned by version and multi-arch index digest; bump both together.
+FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.12-slim
+FROM python:3.12.16-slim-trixie@sha256:962f801b08c870ac2a51b72bf02dae38c9a4162319e5e882ec244e198188d54e
+# libexpat1: pyosmium (osmium) links it, and the slim image lacks it
+# (import-places and build-otp-inputs read the OSM extract with it).
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --create-home --uid 10001 aptscout
 WORKDIR /app
 COPY server/requirements.txt server/requirements.txt

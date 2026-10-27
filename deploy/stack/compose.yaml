@@ -1,0 +1,305 @@
+# aptscout on the tailnet as its own machine, `aptscout`, served at
+# https://aptscout.<tailnet>/ (tailnet only; never Funnel). An app-owned stack
+# on the laptop (scshafe infra docs/platform/agent-deploy.md): a merge to main
+# deploys it through the runner lane; nobody runs `docker compose up` on it by
+# hand. docs/design.md section 14 and docs/deploy.md.
+#
+# The host's tools/stack validates this file against an allowlist before
+# anything runs: binds only under ./state, images either built here (through
+# the pin) or pinned by digest, no build:, no named volumes, no published
+# ports. `dev check` runs the same validator (DEPLOY-04).
+#
+# Sign-in: the app is its own OpenID Connect client of Pocket ID
+# (server/aptscout/auth.py; design section 9), so there is no oauth2-proxy
+# door (host.conf DOOR=none). The app listens on 127.0.0.1:8000 inside the
+# sidecar's namespace, which serve.json proxies to the tailnet over HTTPS.
+# Its token exchange reaches the id node over the host's tailnet: the id
+# name is pinned in the sidecar's /etc/hosts (the public resolver cannot
+# answer it), which the app shares with the sidecar's namespace.
+#
+# Topology (subnets unique on the laptop):
+#   backend  internal 10.253.91.0/28   the sidecar's namespace (the app) ->
+#                                      nominatim:8080, valhalla:8002, otp:8080
+#   egress   bridge   10.253.91.16/28  sidecar (control, DERP, ACME, Pocket ID),
+#                                      jobs (CTA, Geofabrik, the Park District
+#                                      list), nominatim and valhalla (their
+#                                      Illinois imports), tiles (Protomaps)
+#
+# State (./state, the runtime directory /srv/stacks/aptscout on the laptop):
+#   state/tailscale  the node identity (the sidecar only)
+#   state/data       rw  APTSCOUT_DATA_DIR: aptscout.sqlite and photos/, the
+#                        owner's data (uid 10001, 0700); in the backup lane
+#   state/cache      rw  <data dir>/cache: downloaded and built datasets
+#                        (rebuildable, kept out of the backup)
+#   state/cache/otp  rw  OpenTripPlanner's base directory (inputs, graph.obj)
+#   state/backup     rw  the jobs service's nightly SQLite copies and photo
+#                        mirror (backup.py); in the backup lane
+#   state/nominatim  rw  Nominatim's PostgreSQL cluster (rebuildable)
+#   state/valhalla   rw  Valhalla's tiles and config (rebuildable)
+#
+# Host .env names (stack.toml [env]; values never committed): the public URL,
+# the issuer and its host name, the id node's tailnet address, the Pocket ID
+# client, the session secret and the allowed subject.
+name: aptscout
+
+networks:
+  backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.253.91.0/28
+  egress:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.253.91.16/28
+
+services:
+  # --- the node ------------------------------------------------------------------
+  ts-aptscout:
+    # tailscale/tailscale:v1.104.2, multi-arch index digest (the fleet's pin)
+    image: tailscale/tailscale:v1.104.2@sha256:b11583ad2e93e4671128538c88cf11f460444a5d7e449311dd1933a400ab849d
+    container_name: ts-aptscout
+    # docker-init as PID 1: containerboot waits only on tailscaled.
+    init: true
+    restart: unless-stopped
+    environment:
+      TS_HOSTNAME: aptscout
+      TS_USERSPACE: "true"
+      TS_AUTH_ONCE: "true"
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      # Consumed on the first join only; state/tailscale is the identity. The
+      # one-off key carries tag:aptscout.
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+    # Public resolvers, NOT 100.100.100.100 (quad-100 SERVFAILs public names
+    # here and ACME renewal would die silently).
+    dns: [1.1.1.1, 1.0.0.1]
+    extra_hosts:
+      # The app (on this namespace) signs in against the id node over the
+      # host's tailnet.
+      - "${APTSCOUT_OIDC_HOST:?set APTSCOUT_OIDC_HOST (id.<tailnet>) in .env}:${ID_TAILNET_IP:?set ID_TAILNET_IP (the id node's tailscale IPv4) in .env}"
+    volumes:
+      - ./state/tailscale:/var/lib/tailscale
+      - ./serve.json:/config/serve.json:ro
+    networks:
+      backend: {}
+      egress: {}
+    # Userspace tailscale needs no NET_ADMIN or NET_RAW. Every default
+    # capability is dropped except DAC_OVERRIDE: root here must still open
+    # ./state/tailscale, which the host's stack tool keeps cole-owned at 0700
+    # (cap_add is refused, V-03, so the set is spelled out).
+    cap_drop:
+      - AUDIT_WRITE
+      - CHOWN
+      - FOWNER
+      - FSETID
+      - KILL
+      - MKNOD
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - SETFCAP
+      - SETGID
+      - SETPCAP
+      - SETUID
+      - SYS_CHROOT
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, tailscale, status, --peers=false]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # --- the app (the pinned image) ------------------------------------------------
+  aptscout:
+    # Built by the host from this repository's Dockerfile at the merged commit
+    # and pinned in the runtime .env by the deploy.
+    image: ${APTSCOUT_IMAGE}
+    container_name: aptscout
+    init: true
+    restart: unless-stopped
+    user: "10001:10001"  # the image's own user; the deploy hands its state paths to it (0700)
+    network_mode: service:ts-aptscout
+    depends_on: [ts-aptscout]
+    # Loopback only: serve.json is the one way in. No --proxy-headers: the app
+    # builds its URLs from APTSCOUT_PUBLIC_URL and never trusts X-Forwarded-*.
+    command: [python, -m, uvicorn, aptscout.app:app, --host, 127.0.0.1, --port, "8000"]
+    environment:
+      APTSCOUT_PUBLIC_URL: ${APTSCOUT_PUBLIC_URL:?set APTSCOUT_PUBLIC_URL (https://aptscout.<tailnet>) in .env}
+      APTSCOUT_OIDC_ISSUER: ${APTSCOUT_OIDC_ISSUER:?set APTSCOUT_OIDC_ISSUER (https://id.<tailnet>) in .env}
+      APTSCOUT_OIDC_CLIENT_ID: ${APTSCOUT_OIDC_CLIENT_ID:?set APTSCOUT_OIDC_CLIENT_ID in .env}
+      APTSCOUT_OIDC_CLIENT_SECRET: ${APTSCOUT_OIDC_CLIENT_SECRET:?set APTSCOUT_OIDC_CLIENT_SECRET in .env}
+      APTSCOUT_SESSION_SECRET: ${APTSCOUT_SESSION_SECRET:?set APTSCOUT_SESSION_SECRET in .env}
+      APTSCOUT_ALLOWED_SUBJECTS: ${APTSCOUT_ALLOWED_SUBJECTS:?set APTSCOUT_ALLOWED_SUBJECTS (the owner's OIDC subject) in .env}
+      APTSCOUT_NOMINATIM_URL: http://nominatim:8080
+      APTSCOUT_VALHALLA_URL: http://valhalla:8002
+      APTSCOUT_OTP_URL: http://otp:8080
+      HOME: /tmp
+    volumes:
+      - ./state/data:/data
+      - ./state/cache:/data/cache
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    mem_limit: 2g
+    stop_grace_period: 10s
+    healthcheck:
+      test: [CMD, python, -I, -B, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Nightly backup, weekly CTA feed, monthly OSM extract and Park District list
+  # (server/aptscout/jobs.py). It needs outbound HTTPS only (egress).
+  jobs:
+    image: ${APTSCOUT_IMAGE}
+    container_name: aptscout-jobs
+    init: true
+    restart: unless-stopped
+    user: "10001:10001"
+    command: [python, -m, aptscout, jobs]
+    environment:
+      APTSCOUT_BACKUP_DIR: /backup
+      HOME: /tmp
+    volumes:
+      - ./state/data:/data
+      - ./state/cache:/data/cache
+      - ./state/backup:/backup
+    networks:
+      egress: {}
+    dns: [1.1.1.1, 1.0.0.1]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    stop_grace_period: 30s
+    # The image's HEALTHCHECK probes the app's port, which this service does
+    # not serve; the deploy's witness requires it running.
+    healthcheck:
+      disable: true
+
+  # --- routing and geocoding (rebuildable from public data) --------------------------
+  # Geocoding from the Illinois extract (design 3.5). The image's start script
+  # runs as root and drops to its own users with sudo, so it keeps the default
+  # capabilities and no no-new-privileges. The first start imports the extract
+  # (an hour or more); state/nominatim/import-finished marks it done.
+  nominatim:
+    # mediagis/nominatim:5.3.2-2026-06-23T09-03, multi-arch index digest
+    image: mediagis/nominatim:5.3.2-2026-06-23T09-03@sha256:7923a8e67197fc6d4f4ecb7c0e8bbedffeddcfdf4519596fe946e46a28f5a9f8
+    container_name: aptscout-nominatim
+    restart: unless-stopped
+    environment:
+      PBF_URL: https://download.geofabrik.de/north-america/us/illinois-latest.osm.pbf
+      REPLICATION_URL: https://download.geofabrik.de/north-america/us/illinois-updates/
+      THREADS: "3"
+      GUNICORN_WORKERS: "2"
+      # Sized for the laptop it shares with other apps, not the image's defaults.
+      POSTGRES_SHARED_BUFFERS: 1GB
+      POSTGRES_MAINTENANCE_WORK_MEM: 1GB
+      POSTGRES_AUTOVACUUM_WORK_MEM: 512MB
+      POSTGRES_WORK_MEM: 50MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 4GB
+    volumes:
+      - ./state/nominatim:/var/lib/postgresql/16/main
+    tmpfs:
+      - /dev/shm:size=1g
+    networks:
+      backend: {}
+      egress: {}
+    dns: [1.1.1.1, 1.0.0.1]
+    mem_limit: 8g
+    stop_grace_period: 60s
+
+  # Walking, bike and drive times (design 4.2), from the Illinois extract.
+  valhalla:
+    # ghcr.io/valhalla/valhalla-scripted:3.9.1, multi-arch index digest (the
+    # maintained successor of gis-ops/docker-valhalla)
+    image: ghcr.io/valhalla/valhalla-scripted:3.9.1@sha256:6238809f9dc3057743d70a20efd3911ec38e458bfa13a0601909b58f68dfd956
+    container_name: aptscout-valhalla
+    restart: unless-stopped
+    user: "10002:10002"  # not root; the deploy hands state/valhalla to it
+    environment:
+      tile_urls: https://download.geofabrik.de/north-america/us/illinois-latest.osm.pbf
+      server_threads: "2"
+      build_elevation: "False"
+      build_transit: "False"
+    volumes:
+      - ./state/valhalla:/custom_files
+    networks:
+      backend: {}
+      egress: {}
+    dns: [1.1.1.1, 1.0.0.1]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 6g
+    stop_grace_period: 30s
+
+  # CTA schedule routing (design 4.2). Its inputs come from
+  # `python -m aptscout build-otp-inputs` (into state/cache/otp); it builds the
+  # graph when there is none or the inputs are newer, then serves it. After a
+  # new feed: build-otp-inputs, then restart this container.
+  otp:
+    # opentripplanner/opentripplanner:2.10.0, multi-arch index digest
+    image: opentripplanner/opentripplanner:2.10.0@sha256:8d54e5c589186707ee365417f2202dc878c451fa3001b8edff07019531100933
+    container_name: aptscout-otp
+    restart: unless-stopped
+    user: "10001:10001"  # the app's uid: it writes the inputs this reads
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        cd /var/opentripplanner || exit 1
+        run() { exec java $$JAVA_OPTS -cp @/app/jib-classpath-file @/app/jib-main-class-file /var/opentripplanner/ "$$@"; }
+        until [ -f graph.obj ] || { [ -f build-config.json ] && [ -f streets.osm.pbf ] && [ -f cta-gtfs.zip ]; }; do
+          echo "aptscout-otp: waiting for the inputs (python -m aptscout build-otp-inputs)"
+          sleep 300
+        done
+        for input in build-config.json streets.osm.pbf cta-gtfs.zip; do
+          if [ ! -f graph.obj ] || [ "$$input" -nt graph.obj ]; then run --build --save --serve; fi
+        done
+        run --load --serve
+    environment:
+      JAVA_OPTS: -Xmx6g
+    volumes:
+      - ./state/cache/otp:/var/opentripplanner
+    networks:
+      backend: {}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 8g
+    stop_grace_period: 30s
+
+  # --- tools (profile "tools": never started by a deploy) -------------------------------
+  # The pmtiles CLI for the basemap (data/README.md, "build-tiles"): cut the
+  # city's bbox out of a Protomaps daily build into state/cache/tiles. Run by
+  # the owner in the runtime directory: docs/deploy.md, "First run".
+  tiles:
+    profiles: [tools]
+    # protomaps/go-pmtiles:v1.31.2, multi-arch index digest
+    image: protomaps/go-pmtiles:v1.31.2@sha256:06574f01f55a78f78f887bc7ebf729a5c093c0d6e17d9876300cfcb0758b59d3
+    container_name: aptscout-tiles
+    restart: "no"
+    user: "10001:10001"
+    volumes:
+      - ./state/cache:/cache
+    networks:
+      egress: {}
+    dns: [1.1.1.1, 1.0.0.1]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g

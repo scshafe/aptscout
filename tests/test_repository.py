@@ -19,6 +19,10 @@ PLACEHOLDER = "<tailnet>"
 PRIVATE_FILE = re.compile(
     r"(\.(db|sqlite|sqlite3|dump|bak)$|\.db-(wal|shm|journal)$|(^|/)\.env(\..*)?$)"
 )
+# The one exception: the stack's list of host .env names (DEPLOY-03), which
+# must hold names only, never a value (checked below).
+ENV_EXAMPLE = "deploy/stack/.env.example"
+NAME_ONLY_LINE = re.compile(r"^([A-Z][A-Z0-9_]*=\s*(#.*)?|#.*|\s*)$")
 
 
 def text_files():
@@ -94,8 +98,23 @@ class OwnerDataTest(unittest.TestCase):
         self.assertEqual(extra, [], "datasets and owner data are never committed under data/")
 
     def test_no_database_backup_or_env_file_tracked(self):
-        found = [p for p in tracked_files() if PRIVATE_FILE.search(p)]
+        found = [p for p in tracked_files() if PRIVATE_FILE.search(p) and p != ENV_EXAMPLE]
         self.assertEqual(found, [], "the owner's data is runtime data on the laptop, never in git")
+
+    def test_env_example_holds_names_only(self):
+        with open(os.path.join(ROOT, ENV_EXAMPLE), encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        self.assertTrue(lines)
+        bad = [n for n, line in enumerate(lines, 1) if not NAME_ONLY_LINE.match(line)]
+        self.assertEqual(bad, [], f"{ENV_EXAMPLE} lists names only (NAME= with no value)")
+
+    def test_name_only_line(self):
+        for line in ("NAME=", "A_B2=   # a comment", "# x", ""):
+            with self.subTest(line=line):
+                self.assertRegex(line, NAME_ONLY_LINE)
+        for line in ("NAME=value", "NAME=value # c", "name=", "export NAME="):
+            with self.subTest(line=line):
+                self.assertNotRegex(line, NAME_ONLY_LINE)
 
 
 if __name__ == "__main__":

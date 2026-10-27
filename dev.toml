@@ -22,7 +22,13 @@ command = "./scripts/verify"
 # (not deployed); stack = its infra stack, host = where it runs (both
 # optional). SERVICE-02: ci.yml never deploys; the lane does.
 [deploy]
-lane = "none"
+lane = "runner"
+stack = "aptscout"
+layout = "app"
+host = "laptop"
+tailnet_node = "aptscout"
+door = "none"          # the app is its own Pocket ID (OIDC) client: docs/design.md section 9
+verify_on = "hosted"
 
 [skills]
 # BASE-05 asks for .agents/skills; the catalog is M4. Recorded gap.

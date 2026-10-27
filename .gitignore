@@ -12,6 +12,8 @@
 *.dump
 .env
 .env.*
+# names only, never values (tests/test_repository.py checks it)
+!/deploy/stack/.env.example
 *.log
 
 # Python (repository tests)
