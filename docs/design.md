@@ -571,26 +571,26 @@ favourites, the travel-time cache, and anything derived. Rules:
 
 ## 14. Deploy (Q11)
 
-- **Lane**: `dev.toml [deploy] lane = "none"` now. When the owner accepts the
-  design, the owner session sets it to `runner` (a deploy workflow on the
-  self-hosted runner of the laptop, reviewed by hand), registers the runner,
-  creates the infra stack and the tailnet node, and registers the Pocket ID
-  client. None of these are the agent's work; the PR lists exactly what is
-  needed.
-- **Stack under infra**: services `server`, `valhalla`, `nominatim`,
-  `otp`, with volumes for the data directory (section 10). The image build
-  (`server` + built `web`) runs in CI on the public repository; the images
-  are published to GHCR (free for public repos) or built on the runner;
-  decision 10.
-- **External datasets on the host**: a `datasets` job (a compose profile run
-  by the owner's scheduler, or an in-app weekly job) downloads the Illinois
-  extract (Geofabrik), cuts the Chicago region, builds PMTiles, the
-  Nominatim database, the Valhalla tiles and the OTP graph, and fetches the
-  CTA GTFS. It writes to the data directory, versions each dataset in
-  `dataset_version`, and swaps in new files atomically. These steps need
-  outbound internet on the laptop and some GB of disk and CPU time for the
-  first build; `data/README.md` records each source, its licence and the
-  command. Large files are never committed.
+- **Lane (as built)**: `dev.toml [deploy] lane = "runner"`. A merge to `main`
+  runs `.github/workflows/deploy.yml`: verify on GitHub, then the laptop's own
+  runner calls the host's deploy entrypoint, which backs up, builds the
+  `Dockerfile` at the merged commit and brings up the stack; a health job
+  checks it. The runner, the tailnet node `aptscout`, the infra stack and
+  the Pocket ID client were the owner session's work.
+- **Stack**: `deploy/stack/` (`compose.yaml`, `stack.toml`, `serve.json`,
+  `.env.example`): the tailnet sidecar, `aptscout`, `jobs` (the same image),
+  `nominatim`, `valhalla`, `otp`, and a `tiles` tool service (profile
+  `tools`). Every third-party image is pinned by version and digest. Sign-in
+  is the app's own OIDC client of Pocket ID (section 9), so there is no
+  platform door in front of it. `docs/deploy.md` lists the services, state
+  paths and first-run commands.
+- **External datasets on the host**: the `jobs` service downloads the CTA
+  feed (weekly), the Illinois extract and the Park District list (monthly)
+  into `state/cache` and imports the places; Nominatim and Valhalla import
+  the extract themselves on first start; OTP builds its graph from
+  `build-otp-inputs`; the basemap is cut with the `tiles` service.
+  `data/README.md` records each source, its licence and the command. Large
+  files are never committed.
 - **Health**: `/healthz` for the stack; the app shows dataset versions and
   the CTA feed validity (3.4).
 - **Updates**: a merge to `main` redeploys through the runner lane; datasets
