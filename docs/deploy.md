@@ -19,7 +19,7 @@ section 14.
 | `jobs` | `aptscout-jobs` | The same image running `python -m aptscout jobs`: nightly backup, weekly CTA feed, monthly OSM extract and Park District list |
 | `nominatim` | `aptscout-nominatim` | Geocoding (mediagis/nominatim 5.3.2), imports the Illinois extract on its first start |
 | `valhalla` | `aptscout-valhalla` | Walking, bike and drive times (valhalla-scripted 3.9.1), builds its tiles from the Illinois extract on its first start |
-| `otp` | `aptscout-otp` | Transit times (OpenTripPlanner 2.10.0): builds its graph from `cache/otp` when there is none or the inputs are newer, then serves it |
+| `otp` | `aptscout-otp` | Transit times (OpenTripPlanner 2.10.0): builds its graph from `cache/otp` when there is none or the inputs are newer (it re-checks every five minutes), then serves it |
 | `tiles` | `aptscout-tiles` | The `pmtiles` CLI (go-pmtiles 1.31.2), profile `tools`: never started by a deploy, run by hand for the basemap |
 
 Every image is pinned by version and digest; the app's own image is built from
@@ -54,8 +54,8 @@ run in the runtime directory on the laptop, as the stack's owner:
 
 ```sh
 docker exec aptscout-jobs python -m aptscout fetch-assets     # basemap fonts and sprites
-docker exec aptscout python -m aptscout build-otp-inputs      # after the jobs service has the OSM extract and the CTA feed
-docker restart aptscout-otp                                    # builds the OTP graph (minutes), then serves it
+# OTP: the jobs service writes its inputs once it has the CTA feed and the OSM extract
+# (`build-otp-inputs`), and the otp container then builds its graph (minutes) and serves it
 # the basemap: cut the city's bbox (server/aptscout/cities/chicago.json) from the
 # newest Protomaps daily build (https://build.protomaps.com/YYYYMMDD.pmtiles)
 docker exec aptscout mkdir -p /data/cache/tiles
@@ -65,9 +65,13 @@ docker exec aptscout mv /data/cache/tiles/city.pmtiles.part /data/cache/tiles/ci
 docker exec aptscout python -m aptscout recompute              # once OTP and Valhalla answer
 ```
 
-After a new CTA feed (the jobs service imports it weekly):
-`docker exec aptscout python -m aptscout build-otp-inputs`, `docker restart
-aptscout-otp`, then `recompute`.
+After a new CTA feed or OSM extract nothing is run by hand. The jobs service
+imports the weekly feed (and the monthly extract) and runs `build-otp-inputs`;
+the otp container checks every five minutes, and when an input is newer than
+its graph it stops serving, rebuilds (a few minutes, during which the app uses
+its labelled simple transit model) and serves the new graph. Travel times from
+the old graph are never shown: the cache key carries the graph's build time.
+`docker exec aptscout python -m aptscout recompute` only warms the cache.
 
 ## Restore
 

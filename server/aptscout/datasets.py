@@ -213,8 +213,10 @@ def import_places(city: dict) -> str:
 def build_otp_inputs(city: dict) -> str:
     """Assemble OpenTripPlanner's input directory: the clipped streets, the CTA feed and a build config.
 
-    OTP itself (graph build and serving) runs in the stack; rebuild its graph
-    after this command, and after every `fetch-gtfs` that brings a new feed.
+    OTP itself (graph build and serving) runs in the stack. Each file is
+    written beside its name and renamed into place, so the stack's OTP
+    container (which rebuilds its graph when an input is newer) never sees a
+    half-written one. The jobs service runs this after a new feed or extract.
     """
     cache = config.cache_dir()
     pbf, feed = cache / "osm" / "extract.osm.pbf", cache / "cta" / "google_transit.zip"
@@ -223,11 +225,13 @@ def build_otp_inputs(city: dict) -> str:
             raise RuntimeError(f"{needed.name} is missing; run {command} first")
     out = cache / "otp"
     out.mkdir(parents=True, exist_ok=True)
-    counts = clip.clip(pbf, out / "streets.osm.pbf", city["bbox"])
-    shutil.copyfile(feed, out / "cta-gtfs.zip")
-    (out / "build-config.json").write_text(json.dumps({"transitModelTimeZone": city["timezone"]}, indent=2), encoding="utf-8")
+    counts = clip.clip(pbf, out / "streets.part.osm.pbf", city["bbox"])  # osmium picks the format from the name
+    shutil.copyfile(feed, out / "cta-gtfs.zip.part")
+    (out / "build-config.part.json").write_text(json.dumps({"transitModelTimeZone": city["timezone"]}, indent=2), encoding="utf-8")
+    for part, name in (("streets.part.osm.pbf", "streets.osm.pbf"), ("cta-gtfs.zip.part", "cta-gtfs.zip"), ("build-config.part.json", "build-config.json")):
+        (out / part).replace(out / name)
     record("otp_inputs", cta_fetched_at=read_versions().get("cta_gtfs", {}).get("fetched_at"), **counts)
-    return f"OTP inputs ready in {out}: {counts}; rebuild the OTP graph"
+    return f"OTP inputs ready in {out}: {counts}; the OTP container rebuilds its graph"
 
 
 def status() -> dict:

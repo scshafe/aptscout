@@ -25,7 +25,7 @@ with the virtualenv (`scripts/verify` creates `.venv`).
 `fetch-gtfs` sends `If-None-Match` with the stored ETag, so an unchanged feed
 is not downloaded again. The footer shows "CTA schedule valid to <date>" from
 the feed's calendar and warns when the feed expires within 14 days or has
-expired. The `jobs` service runs it weekly. After a new feed: `build-otp-inputs`, rebuild the OTP graph, then `recompute` (it also drops cached times from the old feed; they are never shown, only recomputed on demand without it).
+expired. The `jobs` service runs it weekly. After a new feed the `jobs` service runs `build-otp-inputs` and the OTP container rebuilds its graph by itself. `recompute` only warms the cache: times from the old feed are never shown, and are recomputed on demand.
 
 `build-tiles` needs the `pmtiles` command line tool
 ([go-pmtiles](https://github.com/protomaps/go-pmtiles)) on `PATH`. The app
