@@ -1,0 +1,22 @@
+:root {
+  --bg: #fff;
+  --fg: #1d2330;
+  --muted: #5b6475;
+  --panel: #fffffff0;
+  --line: #d5d9e0;
+  --warn: #8a4b00;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181f;
+    --fg: #e6e9ef;
+    --muted: #9aa3b2;
+    --panel: #1c222cf0;
+    --line: #333b49;
+    --warn: #f0b060;
+    color-scheme: dark;
+  }
+}
+html, body, #app { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }

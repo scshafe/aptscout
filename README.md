@@ -7,8 +7,7 @@ the apartments you are interested in by rent, details, distance to what
 matters and total weekly travel time (how often you go to each destination,
 and how: CTA, walking, biking or driving). A web app on the tailnet.
 
-- Brief: [docs/brief.md](docs/brief.md). The design (`docs/design.md`) is the
-  project agent's first PR.
+- Brief: [docs/brief.md](docs/brief.md). Design: [docs/design.md](docs/design.md) (accepted).
 - [web/](web/): the map and comparison UI.
 - [server/](server/): the API and the apartment store.
 - [data/](data/): the external datasets the app uses (nothing committed yet).
@@ -19,7 +18,7 @@ host that runs the app. They never go in this repository.
 ## Verify
 
 ```sh
-./scripts/verify      # the repository tests (standard library unittest)
+./scripts/verify      # repository + server tests, web type check and build
 ```
 
 ## License
