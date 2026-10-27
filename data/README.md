@@ -13,8 +13,13 @@ with the virtualenv (`scripts/verify` creates `.venv`).
 | Dataset | Command | Source | Licence / terms |
 | --- | --- | --- | --- |
 | CTA overlays (rail, bus, stops) | `fetch-gtfs`, `import-gtfs` | CTA GTFS static feed (URL in `server/aptscout/cities/chicago.json`) | CTA Developer License Agreement, below |
+| OSM extract | `fetch-osm` | Geofabrik Illinois extract (`osm_extract_url` in the city file), ETag conditional | OpenStreetMap, ODbL |
+| Places (grocery, gym, pools, parks, ...) | `import-places` | The extract above, clipped to the city's `bbox`, plus the two rows below, into the database | ODbL; attribution on the map |
+| Park District pools | `fetch-pools` | City of Chicago data portal, "Parks - Facilities & Features" (`y7qa-tvqx`, Chicago Park District) | Public domain; the list dates from 2016, so the owner confirms each pool |
 | Basemap tiles | `build-tiles` | Region cut (`bbox` in the city file) from the public Protomaps daily build, with the `pmtiles` tool | OpenStreetMap, ODbL: "© OpenStreetMap contributors" is shown on the map |
 | Basemap fonts and sprites | `fetch-assets` | `protomaps/basemaps-assets` at the commit pinned in the city file | Fonts: Noto Sans (SIL OFL); sprites and scripts MIT. Served by the app, so the browser contacts no outside host |
+
+`import-places` is idempotent: it updates places the owner has not edited, keeps edited ones, revives returned ones and flags vanished ones `gone`. Park District pools within 100 m of an OSM pool are merged into it (the OSM pool becomes "likely"). CTA stops become the `rail_station` and `bus_stop` categories.
 
 `fetch-gtfs` sends `If-None-Match` with the stored ETag, so an unchanged feed
 is not downloaded again. The footer shows "CTA schedule valid to <date>" from
