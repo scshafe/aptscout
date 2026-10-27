@@ -207,6 +207,8 @@ def build_router(current_user) -> APIRouter:
             if row_fields:
                 sets = ", ".join(f"{k} = ?" for k in row_fields)
                 conn.execute(f"UPDATE place SET {sets}, edited = 1 WHERE id = ?", (*row_fields.values(), place_id))
+                if "lat" in row_fields or "lon" in row_fields:
+                    conn.execute("DELETE FROM apartment_distance WHERE place_id = ?", (place_id,))
             if place["owner_id"] is not None and "notes" in changes:
                 conn.execute("UPDATE place SET notes = ? WHERE id = ?", (changes["notes"], place_id))
             marks = {k: changes[k] for k in ("state", "favourite", "hidden") if k in changes}

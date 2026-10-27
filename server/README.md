@@ -1,7 +1,7 @@
 # server
 
 The API on the tailnet (FastAPI, Python 3.12 or newer). Design:
-`docs/design.md` sections 2, 13 and 14. Today (M2) it also keeps the places and categories in SQLite (`aptscout.sqlite` in the data directory, numbered migrations in `aptscout/migrations/`) and serves `/api/categories` and `/api/places`. It serves the basemap
+`docs/design.md` sections 2, 13 and 14. Today (M3) it also keeps the places and categories in SQLite (`aptscout.sqlite` in the data directory, numbered migrations in `aptscout/migrations/`) and serves `/api/categories` and `/api/places`. It serves the basemap
 tiles with byte ranges, the basemap fonts and sprites, the CTA overlays
 (`/api/cta/{rail,bus,stops}`), the dataset versions and the built `web/`.
 Sign-in is a development stub until Pocket ID (M7): `/api/*` answers 401
@@ -14,6 +14,14 @@ python3 -m venv ../.venv && ../.venv/bin/pip install -r requirements.txt
 ../.venv/bin/python -m aptscout import-places
 APTSCOUT_DEV_USER=me ../.venv/bin/python -m uvicorn aptscout.app:app --port 8000
 ```
+
+Apartments (`/api/apartments`) carry rent, floor, facing and the rest of
+design section 7, a status history and a score with its explanation. Scores
+use `APTSCOUT_VALHALLA_URL` (a self-hosted Valhalla, walking) when set and a
+straight line times 1.3 otherwise; `/api/geocode` uses `APTSCOUT_NOMINATIM_URL`
+(a self-hosted Nominatim) and answers 503 when it is unset, so the owner drops
+the pin by hand. Both services arrive with the stack (M7); until then the
+clients are tested against recorded responses only.
 
 Environment: `APTSCOUT_DATA_DIR` (runtime data, default `state/`),
 `APTSCOUT_CITY` (default `chicago`, a file in `aptscout/cities/`),
