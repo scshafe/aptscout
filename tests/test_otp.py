@@ -29,12 +29,17 @@ def north(metres):
     return (ORIGIN[0] + metres / M_PER_DEG_LAT, ORIGIN[1])
 
 
-def mock_otp(durations, seen=None):
-    """An OTP whose itineraries last `durations` seconds, in order of the calls."""
+def mock_otp(durations, seen=None, legacy=False):
+    """An OTP whose itineraries last `durations` seconds, in order of the calls.
+
+    A modern OTP answers planConnection; with legacy=True it only knows plan.
+    """
     calls = iter(durations)
 
     def handler(request):
         body = json.loads(request.content)
+        if legacy and "planConnection" in body["query"]:
+            return httpx.Response(200, json={"errors": [{"message": "Validation error (FieldUndefined@[planConnection]) : Field 'planConnection' in type 'QueryType' is undefined"}]})
         if seen is not None:
             seen.append(body["variables"])
         value = next(calls)
@@ -42,8 +47,10 @@ def mock_otp(durations, seen=None):
             raise value
         if value == "error":
             return httpx.Response(200, json={"errors": [{"message": "no path"}], "data": None})
-        itineraries = [] if value is None else [{"duration": value}, {"duration": value + 600}]
-        return httpx.Response(200, json={"data": {"plan": {"itineraries": itineraries}}})
+        durations_ = [] if value is None else [value, value + 600]
+        if legacy:
+            return httpx.Response(200, json={"data": {"plan": {"itineraries": [{"duration": d} for d in durations_]}}})
+        return httpx.Response(200, json={"data": {"planConnection": {"edges": [{"node": {"duration": d}} for d in durations_]}}})
 
     return httpx.Client(transport=httpx.MockTransport(handler))
 
@@ -66,15 +73,21 @@ class OtpClientTest(unittest.TestCase):
         engine = otp.Otp("http://otp.test:8080/", mock_otp([1200, 1800, 1500], seen), today=date(2026, 10, 27), valid_to=date(2026, 11, 30))
         minutes, method = engine.minutes(ORIGIN, north(3000), "weekday_rush", "out")
         self.assertEqual((minutes, method), (25.0, "otp"))             # median of 20, 30, 25
-        self.assertEqual([v["time"] for v in seen], ["07:30", "08:00", "08:30"])
-        self.assertEqual(seen[0]["date"], "2026-10-28")
-        self.assertEqual(seen[0]["from"], {"lat": ORIGIN[0], "lon": ORIGIN[1]})
+        self.assertEqual([v["dateTime"] for v in seen], ["2026-10-28T07:30:00-05:00", "2026-10-28T08:00:00-05:00", "2026-10-28T08:30:00-05:00"])
+        self.assertEqual((seen[0]["from"], seen[0]["fromLon"]), (ORIGIN[0], ORIGIN[1]))
+
+    def test_an_older_otp_is_asked_with_plan(self):
+        seen = []
+        engine = otp.Otp("http://otp.test", mock_otp([600, 900, 1200], seen, legacy=True), today=date(2026, 10, 27), valid_to=None)
+        self.assertEqual(engine.minutes(ORIGIN, north(3000), "weekday_rush", "out")[0], 15.0)
+        self.assertEqual([v["time"] for v in seen], ["07:30:00", "08:00:00", "08:30:00"])   # hh:mm:ss, as OTP requires
+        self.assertFalse(engine.modern)
 
     def test_the_evening_rush_is_the_way_back(self):
         seen = []
         engine = otp.Otp("http://otp.test", mock_otp([600, 600, 600], seen), today=date(2026, 10, 27), valid_to=date(2026, 11, 30))
         engine.minutes(ORIGIN, north(3000), "weekday_rush", "back")
-        self.assertEqual([v["time"] for v in seen], ["17:00", "17:30", "18:00"])
+        self.assertEqual([v["dateTime"][11:16] for v in seen], ["17:00", "17:30", "18:00"])
 
     def test_a_departure_without_an_itinerary_is_skipped_and_none_at_all_is_no_route(self):
         engine = otp.Otp("http://otp.test", mock_otp([None, 900, None]), today=date(2026, 10, 27), valid_to=None)

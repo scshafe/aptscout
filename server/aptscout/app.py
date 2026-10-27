@@ -1,19 +1,20 @@
 """The aptscout HTTP app (design sections 2, 9, 14).
 
-M1 serves the basemap tiles, the basemap assets, the CTA overlays and the
-built web app. Sign-in is a development stub until Pocket ID (M7): the user
-comes from APTSCOUT_DEV_USER, and /api/* answers 401 when it is unset.
+Serves the API, the basemap tiles and assets, the CTA overlays and the built
+web app. Sign-in is Pocket ID (auth.py) when APTSCOUT_OIDC_* is set, else a
+development stub: the user comes from APTSCOUT_DEV_USER, and /api/* answers
+401 when it is unset.
 """
 
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import apartments_api, config, destinations_api, datasets, otp, photos_api, places_api, routing
+from . import apartments_api, auth, config, destinations_api, datasets, export_api, otp, photos_api, places_api, routing
 
 OVERLAYS = ("rail", "bus", "stops")
 
@@ -28,17 +29,19 @@ class _GzipExceptTiles(GZipMiddleware):
             await super().__call__(scope, receive, send)
 
 
-def current_user() -> str:
-    user = os.environ.get("APTSCOUT_DEV_USER")
-    if not user:
-        raise HTTPException(status_code=401, detail="not signed in")
-    return user
-
-
-def create_app(web_dist: Path | None = None) -> FastAPI:
+def create_app(web_dist: Path | None = None, oidc_client_factory=None) -> FastAPI:
     app = FastAPI(title="aptscout", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(_GzipExceptTiles, minimum_size=1024)
     city = config.load_city()
+    settings = auth.Settings()
+    current_user = auth.user_dependency(settings)
+    app.include_router(auth.build_router(settings, oidc_client_factory) if oidc_client_factory else auth.build_router(settings))
+
+    @app.middleware("http")
+    async def same_origin_writes(request: Request, call_next):
+        if settings.enabled and not auth.origin_ok(settings, request):
+            return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
+        return await call_next(request)
 
     app.state.router = routing.make_router()
     app.state.otp = otp.make_engine()
@@ -46,6 +49,7 @@ def create_app(web_dist: Path | None = None) -> FastAPI:
     app.include_router(apartments_api.build_router(current_user))
     app.include_router(destinations_api.build_router(current_user))
     app.include_router(photos_api.build_router(current_user))
+    app.include_router(export_api.build_router(current_user))
 
     @app.get("/healthz")
     def healthz():

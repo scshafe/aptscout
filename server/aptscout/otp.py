@@ -8,6 +8,7 @@ Uses OTP's GTFS GraphQL API (`/otp/gtfs/v1`).
 import os
 import statistics
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -28,7 +29,18 @@ DEPARTURES = {
 }
 WEEKDAY = {"weekday_rush": 2, "weekday_midday": 2, "evening": 2, "saturday": 5, "sunday": 6}  # Wednesday, Sat, Sun
 
-QUERY = """
+# OTP 2.7 and later: planConnection (plan is deprecated there). Older 2.x: plan.
+CONNECTION_QUERY = """
+query Plan($dateTime: OffsetDateTime!, $from: Float!, $fromLon: Float!, $to: Float!, $toLon: Float!) {
+  planConnection(
+    origin: {location: {coordinate: {latitude: $from, longitude: $fromLon}}}
+    destination: {location: {coordinate: {latitude: $to, longitude: $toLon}}}
+    dateTime: {earliestDeparture: $dateTime}
+    first: 3
+  ) { edges { node { duration } } }
+}
+"""
+LEGACY_QUERY = """
 query Plan($date: String!, $time: String!, $from: InputCoordinates!, $to: InputCoordinates!) {
   plan(date: $date, time: $time, from: $from, to: $to, arriveBy: false, numItineraries: 3,
        transportModes: [{mode: TRANSIT}, {mode: WALK}]) {
@@ -36,6 +48,7 @@ query Plan($date: String!, $time: String!, $from: InputCoordinates!, $to: InputC
   }
 }
 """
+TIMEZONE = ZoneInfo("America/Chicago")
 
 
 class NoRoute(Exception):
@@ -61,6 +74,7 @@ class Otp:
         self.client = client or httpx.Client(timeout=60)
         self._valid_to = valid_to  # tests; otherwise read from the imported feed
         self.today = today
+        self.modern = True
 
     def valid_to(self) -> date | None:
         if self._valid_to is not None:
@@ -68,18 +82,34 @@ class Otp:
         text = datasets.read_versions().get("cta_gtfs", {}).get("valid_to")
         return date.fromisoformat(text) if text else None
 
-    def _duration(self, day: date, time: str, origin, dest) -> float | None:
-        body = {"query": QUERY, "variables": {
-            "date": day.isoformat(), "time": time,
-            "from": {"lat": origin[0], "lon": origin[1]}, "to": {"lat": dest[0], "lon": dest[1]}}}
-        resp = self.client.post(self.url + "/otp/gtfs/v1", json=body)
+    def _post(self, query: str, variables: dict) -> dict:
+        resp = self.client.post(self.url + "/otp/gtfs/v1", json={"query": query, "variables": variables})
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
+
+    def _duration(self, day: date, time: str, origin, dest) -> float | None:
+        """Minutes of the quickest itinerary leaving at `time` (hh:mm) on `day`, or None."""
+        if self.modern:
+            stamp = datetime.fromisoformat(f"{day.isoformat()}T{time}:00").replace(tzinfo=TIMEZONE).isoformat()
+            data = self._post(CONNECTION_QUERY, {"dateTime": stamp, "from": origin[0], "fromLon": origin[1],
+                                                 "to": dest[0], "toLon": dest[1]})
+            if self._unknown_field(data, "planConnection"):
+                self.modern = False  # an older OTP: remember and use plan
+                return self._duration(day, time, origin, dest)
+            nodes = [e["node"] for e in (((data.get("data") or {}).get("planConnection") or {}).get("edges") or [])]
+        else:
+            data = self._post(LEGACY_QUERY, {"date": day.isoformat(), "time": time + ":00",
+                                             "from": {"lat": origin[0], "lon": origin[1]}, "to": {"lat": dest[0], "lon": dest[1]}})
+            nodes = ((data.get("data") or {}).get("plan") or {}).get("itineraries") or []
         if data.get("errors"):
             raise NoRoute(str(data["errors"][0].get("message", "OTP error"))[:120])
-        itineraries = ((data.get("data") or {}).get("plan") or {}).get("itineraries") or []
-        durations = [i["duration"] for i in itineraries if i.get("duration") is not None]
+        durations = [n["duration"] for n in nodes if n.get("duration") is not None]
         return min(durations) / 60 if durations else None
+
+    @staticmethod
+    def _unknown_field(data: dict, field: str) -> bool:
+        return any(field in str(e.get("message", "")) and ("undefined" in str(e).lower() or "validation" in str(e).lower())
+                   for e in data.get("errors") or [])
 
     def minutes(self, origin, dest, band: str, direction: str) -> tuple[float, str]:
         """The median best-itinerary minutes over the band's departures."""

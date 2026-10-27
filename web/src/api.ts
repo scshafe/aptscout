@@ -13,8 +13,14 @@ export interface Dataset {
   fetched_at?: string;
 }
 
+/** An expired or missing sign-in sends the browser to Pocket ID. */
+function signInIfNeeded(resp: Response) {
+  if (resp.status === 401 && location.pathname !== "/auth/login") location.href = "/auth/login";
+}
+
 async function get<T>(path: string): Promise<T> {
   const resp = await fetch(path);
+  signInIfNeeded(resp);
   if (!resp.ok) throw new Error(`${path}: ${resp.status}`);
   return resp.json();
 }
@@ -61,6 +67,7 @@ async function send(method: string, path: string, body?: unknown): Promise<Respo
     headers: body === undefined ? {} : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  signInIfNeeded(resp);
   if (!resp.ok) throw new Error(`${method} ${path}: ${resp.status} ${await resp.text()}`);
   return resp;
 }

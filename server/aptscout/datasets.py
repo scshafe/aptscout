@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from . import clip, config, db, gtfs, importer, recompute
+from . import backup, clip, config, db, gtfs, importer, jobs, recompute
 
 USER_AGENT = "aptscout/0.1 (self-hosted apartment map; +https://github.com/scshafe/aptscout)"
 EXPIRY_WARNING_DAYS = 14
@@ -252,9 +252,14 @@ def main(argv: list[str]) -> int:
         "import-places": import_places,
         "build-otp-inputs": build_otp_inputs,
         "recompute": lambda c: recompute.run(),
+        "backup": lambda c: backup.run(),
+        "jobs": lambda c: jobs.loop(),
     }
+    if argv[:1] == ["restore"] and len(argv) == 2:
+        print(backup.restore(argv[1]))
+        return 0
     if len(argv) != 1 or argv[0] not in (*commands, "status"):
-        print("usage: python -m aptscout <" + "|".join((*commands, "status")) + ">", file=sys.stderr)
+        print("usage: python -m aptscout <" + "|".join((*commands, "status")) + "|restore FILE>", file=sys.stderr)
         return 2
     if argv[0] == "status":
         print(json.dumps(status(), indent=2, sort_keys=True))
