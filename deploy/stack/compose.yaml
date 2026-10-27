@@ -158,7 +158,7 @@ services:
       retries: 3
       start_period: 20s
 
-  # Nightly backup, weekly CTA feed, monthly OSM extract and Park District list
+  # Nightly backup, weekly CTA feed, monthly OSM extract, Park District list and basemap tiles
   # (server/aptscout/jobs.py). It needs outbound HTTPS only (egress).
   jobs:
     image: ${APTSCOUT_IMAGE}
@@ -309,7 +309,9 @@ services:
     stop_grace_period: 30s
 
   # --- tools (profile "tools": never started by a deploy) -------------------------------
-  # The pmtiles CLI for the basemap (data/README.md, "build-tiles"): cut the
+  # The pmtiles CLI for a manual basemap cut (data/README.md, "build-tiles"; the
+  # jobs service does it monthly with the same pinned binary, copied into the
+  # app image by the Dockerfile; keep the two versions equal): cut the
   # city's bbox out of a Protomaps daily build into state/cache/tiles. Run by
   # the owner in the runtime directory: docs/deploy.md, "First run".
   tiles:
