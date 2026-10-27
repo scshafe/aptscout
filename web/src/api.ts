@@ -205,3 +205,15 @@ export const deleteDestination = (id: number) => send("DELETE", `/api/destinatio
 export const getSettings = () => get<Settings>("/api/settings");
 export const putSettings = (body: Partial<Settings>) =>
   send("PUT", "/api/settings", body).then((r) => r.json() as Promise<Settings>);
+
+export interface Photo {
+  id: number;
+  caption: string;
+  created: string;
+}
+export const getPhotos = (apartmentId: number) => get<Photo[]>(`/api/apartments/${apartmentId}/photos`);
+export const uploadPhoto = (apartmentId: number, jpeg: Blob) =>
+  fetch(`/api/apartments/${apartmentId}/photos`, { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: jpeg })
+    .then((r) => { if (!r.ok) throw new Error(`photo upload: ${r.status}`); return r.json() as Promise<{ id: number }>; });
+export const deletePhoto = (id: number) => send("DELETE", `/api/photos/${id}`);
+export const captionPhoto = (id: number, caption: string) => send("PATCH", `/api/photos/${id}`, { caption });

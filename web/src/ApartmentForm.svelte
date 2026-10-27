@@ -1,12 +1,15 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { COMPASS, STATUSES, addApartment, geocode, patchApartment, type Apartment, type ApartmentInput, type Compass } from "./api";
+  import CompassButton from "./CompassButton.svelte";
+  import { enqueue, isNetworkError } from "./offline";
 
-  let { apartment, pin, onpickpin, onsaved, oncancel }: {
+  let { apartment, pin, onpickpin, onsaved, onqueued, oncancel }: {
     apartment?: Apartment;
     pin?: { lat: number; lon: number };
     onpickpin: () => void;
     onsaved: (id: number) => void;
+    onqueued: () => void;
     oncancel: () => void;
   } = $props();
 
@@ -48,6 +51,16 @@
     }
   }
 
+  function locate() {
+    message = "";
+    if (!navigator.geolocation) { message = "This device cannot share its location."; return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { coords = { lat: p.coords.latitude, lon: p.coords.longitude, source: "manual" }; },
+      () => { message = "Could not get your location. Place the pin on the map instead."; },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  }
+
   function choose(c: { lat: number; lon: number }) {
     coords = { lat: c.lat, lon: c.lon, source: "geocoder" };
     candidates = [];
@@ -74,6 +87,11 @@
         onsaved((await addApartment(body)).id);
       }
     } catch (err) {
+      if (!apartment && isNetworkError(err)) {
+        enqueue(body);  // no signal: keep it on this device and send it when the connection returns
+        onqueued();
+        return;
+      }
       message = "Could not save: " + (err instanceof Error ? err.message.slice(0, 160) : "error");
     }
   }
@@ -87,6 +105,7 @@
   <label>Address <input bind:value={f.address} placeholder="Street address" /></label>
   <div class="row">
     <button type="button" onclick={search} disabled={f.address.trim().length < 3}>Find on map</button>
+    <button type="button" onclick={locate}>Use my location</button>
     <button type="button" onclick={onpickpin}>Place pin on map</button>
     <span class="meta">{coords.lat === null ? "no pin yet" : `pin set (${coords.source ?? apartment?.location_source ?? "manual"})`}</span>
   </div>
@@ -108,6 +127,7 @@
         <button type="button" class:on={f.facing.includes(c)} aria-pressed={f.facing.includes(c)} onclick={() => toggleFacing(c)}>{c}</button>
       {/each}
     </div>
+    <CompassButton onset={(c) => (f.facing = [c])} />
   </fieldset>
   <label>Status
     <select bind:value={f.status}>{#each STATUSES as s}<option value={s}>{s}</option>{/each}</select>

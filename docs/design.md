@@ -458,6 +458,13 @@ it reconnects. On a phone:
 - The facing picker can use the phone compass (`DeviceOrientation`) as a
   convenience, behind a button, not by default.
 
+M6 as built: the service worker caches the shell, hashed assets and the last
+`GET /api/*` answers (network first). Only new apartments are queued offline
+(on the device, in localStorage); edits, photos and everything else need a
+connection. The cache and the queue live in the phone's browser and are not
+cleared on sign-out. Photos are re-encoded in the browser before upload, which
+removes the camera's GPS tags.
+
 ### 8.3 Accessibility
 
 Colour is never the only carrier (icons and labels), controls are

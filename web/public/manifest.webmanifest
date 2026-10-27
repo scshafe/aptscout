@@ -1,0 +1,11 @@
+{
+  "name": "aptscout",
+  "short_name": "aptscout",
+  "description": "A labelled map for apartment hunting",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#14181f",
+  "theme_color": "#14181f",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
