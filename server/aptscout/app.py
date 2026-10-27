@@ -13,7 +13,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import apartments_api, config, datasets, places_api, routing
+from . import apartments_api, config, destinations_api, datasets, places_api, routing
 
 OVERLAYS = ("rail", "bus", "stops")
 
@@ -43,6 +43,7 @@ def create_app(web_dist: Path | None = None) -> FastAPI:
     app.state.router = routing.make_router()
     app.include_router(places_api.build_router(current_user))
     app.include_router(apartments_api.build_router(current_user))
+    app.include_router(destinations_api.build_router(current_user))
 
     @app.get("/healthz")
     def healthz():

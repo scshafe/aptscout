@@ -1,7 +1,7 @@
 # server
 
 The API on the tailnet (FastAPI, Python 3.12 or newer). Design:
-`docs/design.md` sections 2, 13 and 14. Today (M3) it also keeps the places and categories in SQLite (`aptscout.sqlite` in the data directory, numbered migrations in `aptscout/migrations/`) and serves `/api/categories` and `/api/places`. It serves the basemap
+`docs/design.md` sections 2, 13 and 14. Today (M4) it also keeps the owner's destinations and settings and computes the weekly travel time (`weekly.py`; the simple CTA model is `transit.py`). Before that (M3) it also keeps the places and categories in SQLite (`aptscout.sqlite` in the data directory, numbered migrations in `aptscout/migrations/`) and serves `/api/categories` and `/api/places`. It serves the basemap
 tiles with byte ranges, the basemap fonts and sprites, the CTA overlays
 (`/api/cta/{rail,bus,stops}`), the dataset versions and the built `web/`.
 Sign-in is a development stub until Pocket ID (M7): `/api/*` answers 401

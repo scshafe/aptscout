@@ -111,6 +111,9 @@ export interface Apartment {
   notes: string;
   place_score?: number | null;
   minutes?: Record<string, number | null>;
+  weekly_minutes?: number | null;
+  weekly_complete?: boolean;
+  weekly_parts?: { id: number; round_trip: number | null; trips: number; weekly: number | null }[];
 }
 
 export interface CategoryScore {
@@ -127,10 +130,11 @@ export interface CategoryScore {
 
 export interface ApartmentDetail extends Apartment {
   score: { place_score: number | null; categories: CategoryScore[] };
+  weekly: { total: number | null; complete: boolean; destinations: WeeklyPart[] };
   status_history: { status: string; at: string }[];
 }
 
-export type ApartmentInput = Partial<Omit<Apartment, "id" | "place_score" | "minutes">>;
+export type ApartmentInput = Partial<Omit<Apartment, "id" | "place_score" | "minutes" | "weekly_minutes" | "weekly_complete" | "weekly_parts">>;
 
 export const getApartments = () => get<Apartment[]>("/api/apartments");
 export const getApartment = (id: number) => get<ApartmentDetail>(`/api/apartments/${id}`);
@@ -140,3 +144,64 @@ export const patchApartment = (id: number, body: ApartmentInput) => send("PATCH"
 export const deleteApartment = (id: number) => send("DELETE", `/api/apartments/${id}`);
 export const geocode = (q: string) =>
   get<{ label: string; lat: number; lon: number }[]>(`/api/geocode?q=${encodeURIComponent(q)}`);
+
+export const MODES = ["walk", "bike", "drive", "transit"] as const;
+export const BANDS = ["weekday_rush", "weekday_midday", "evening", "saturday", "sunday"] as const;
+export const BAND_LABEL: Record<(typeof BANDS)[number], string> = {
+  weekday_rush: "Weekday rush hour", weekday_midday: "Weekday midday", evening: "Evening",
+  saturday: "Saturday", sunday: "Sunday",
+};
+export const RULES = ["best", "nearest", "favourite", "mean_n"] as const;
+export const RULE_LABEL: Record<(typeof RULES)[number], string> = {
+  best: "Best by travel time", nearest: "Nearest", favourite: "My favourite", mean_n: "Average of the nearest N",
+};
+
+export interface Destination {
+  id: number;
+  name: string;
+  kind: "place" | "category";
+  address: string;
+  lat: number | null;
+  lon: number | null;
+  category_key: string | null;
+  selection_rule: (typeof RULES)[number];
+  n: number;
+  trips_per_week: number;
+  mode: (typeof MODES)[number];
+  time_band: (typeof BANDS)[number];
+  return_band: (typeof BANDS)[number] | null;
+  max_minutes: number | null;
+}
+export type DestinationInput = Partial<Omit<Destination, "id">>;
+
+export interface WeeklyPart {
+  id: number;
+  name: string;
+  trips: number;
+  mode: string;
+  place: { id: number; name: string; lat: number; lon: number } | null;
+  out: number | null;
+  back: number | null;
+  round_trip: number | null;
+  weekly: number | null;
+  method: string | null;
+  note: string;
+  over_budget: boolean;
+  max_minutes: number | null;
+}
+
+export interface Settings {
+  combined_on: boolean;
+  w_place: number;
+  w_time: number;
+  w_rent: number;
+}
+
+export const getDestinations = () => get<Destination[]>("/api/destinations");
+export const addDestination = (body: DestinationInput) =>
+  send("POST", "/api/destinations", body).then((r) => r.json() as Promise<{ id: number }>);
+export const patchDestination = (id: number, body: DestinationInput) => send("PATCH", `/api/destinations/${id}`, body);
+export const deleteDestination = (id: number) => send("DELETE", `/api/destinations/${id}`);
+export const getSettings = () => get<Settings>("/api/settings");
+export const putSettings = (body: Partial<Settings>) =>
+  send("PUT", "/api/settings", body).then((r) => r.json() as Promise<Settings>);

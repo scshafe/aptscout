@@ -1,5 +1,6 @@
 <script lang="ts">
   import { deleteApartment, type ApartmentDetail } from "./api";
+  import { hoursMinutes } from "./weeklyMath";
 
   let { apt, onedit, ondeleted, onclose }: {
     apt: ApartmentDetail;
@@ -29,6 +30,34 @@
   </div>
   {#if apt.listing_url}<a href={apt.listing_url} target="_blank" rel="noopener noreferrer">Listing</a>{/if}
   {#if apt.notes}<p class="notes">{apt.notes}</p>{/if}
+
+  <h4>Weekly travel {hoursMinutes(apt.weekly.total)}</h4>
+  {#if apt.lat === null}
+    <p class="meta">Place the pin on the map to compute travel times.</p>
+  {:else if !apt.weekly.destinations.length}
+    <p class="meta">Add destinations in the Trips tab.</p>
+  {:else}
+    <table>
+      <thead><tr><th>Destination</th><th>Via</th><th>Round trip</th><th>×/wk</th><th>Week</th></tr></thead>
+      <tbody>
+        {#each apt.weekly.destinations as d (d.id)}
+          <tr class:over={d.over_budget}>
+            <td>{d.name}{d.over_budget ? ` (over ${d.max_minutes} min)` : ""}</td>
+            <td>{d.place?.name ?? d.note}{d.place && d.note ? ` (${d.note})` : ""} · {d.mode === "transit" ? "CTA" : d.mode}{d.method?.startsWith("estimate") ? " est." : ""}</td>
+            <td>{d.round_trip === null ? "–" : d.round_trip + "′"}</td>
+            <td>{d.trips}</td>
+            <td>{d.weekly === null ? "–" : hoursMinutes(d.weekly)}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    <div class="stack" aria-hidden="true">
+      {#each apt.weekly.destinations as d, i (d.id)}
+        {#if d.weekly}<span style:flex={d.weekly} style:opacity={1 - (i % 5) * 0.16} title="{d.name}: {hoursMinutes(d.weekly)}"></span>{/if}
+      {/each}
+    </div>
+    <p class="meta">Times are estimates from straight-line distances until schedule-based routing is added. Scheduled service only; delays are not modelled.</p>
+  {/if}
 
   <h4>Place score {apt.score.place_score ?? "–"}</h4>
   {#if apt.lat === null}
@@ -75,4 +104,7 @@
   table { border-collapse: collapse; font-size: 12px; width: 100%; }
   th, td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); }
   .row { display: flex; gap: 6px; }
+  tr.over td { color: var(--warn); }
+  .stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
+  .stack span { background: var(--fg); border-right: 1px solid var(--bg); }
 </style>

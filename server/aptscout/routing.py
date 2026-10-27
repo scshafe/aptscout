@@ -12,6 +12,9 @@ import httpx
 
 WALK_KMH = float(os.environ.get("APTSCOUT_WALK_KMH", "4.8"))
 DETOUR = 1.3  # street network vs straight line, used when no router is configured
+BIKE_KMH = float(os.environ.get("APTSCOUT_BIKE_KMH", "15"))
+DRIVE_KMH = float(os.environ.get("APTSCOUT_DRIVE_KMH", "28"))  # city average, free flow, parking not included
+MODES = ("walk", "bike", "drive")
 Point = tuple[float, float]  # (lat, lon)
 
 
@@ -31,9 +34,19 @@ class Router(Protocol):
     def walk_minutes(self, origin: Point, targets: list[Point], measure: str) -> list[float | None]:
         """Walking minutes to each target under `measure`; None when unreachable."""
 
+    def travel_minutes(self, origin: Point, targets: list[Point], mode: str) -> list[float | None]:
+        """Minutes by walk, bike or drive to each target; None when unreachable."""
+
+
+def speed_kmh(mode: str) -> float:
+    return {"walk": WALK_KMH, "bike": BIKE_KMH, "drive": DRIVE_KMH}[mode]
+
 
 class StraightLine:
     name = "straight"
+
+    def travel_minutes(self, origin, targets, mode):
+        return [haversine_m(origin, t) * DETOUR / (speed_kmh(mode) * 1000 / 60) for t in targets]
 
     def walk_minutes(self, origin, targets, measure):
         factor = 1.0 if measure == "straight" else DETOUR
@@ -67,6 +80,24 @@ class Valhalla:
             out[cell["to_index"]] = (
                 walk_minutes(cell["distance"] * 1000) if measure == "walk_distance" else cell["time"] / 60
             )
+        return out
+
+
+    def travel_minutes(self, origin, targets, mode):
+        if mode == "walk":
+            return self.walk_minutes(origin, targets, "walk_time")
+        costing = {"bike": "bicycle", "drive": "auto"}[mode]
+        body = {
+            "sources": [{"lat": origin[0], "lon": origin[1]}],
+            "targets": [{"lat": t[0], "lon": t[1]} for t in targets],
+            "costing": costing,
+        }
+        resp = self.client.post(self.url + "/sources_to_targets", json=body)
+        resp.raise_for_status()
+        out: list[float | None] = [None] * len(targets)
+        for cell in resp.json()["sources_to_targets"][0]:
+            if cell.get("time") is not None:
+                out[cell["to_index"]] = cell["time"] / 60
         return out
 
 

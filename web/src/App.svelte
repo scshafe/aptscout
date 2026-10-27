@@ -4,8 +4,8 @@
   import type { GeoJSONSourceSpecification } from "maplibre-gl";
   import { Protocol } from "pmtiles";
   import {
-    getApartment, getApartments, getCategories, getConfig, getDatasets, getPlaces,
-    type Apartment, type ApartmentDetail, type Category, type Dataset, type MapConfig, type PlaceCollection,
+    getApartment, getApartments, getCategories, getConfig, getDatasets, getDestinations, getPlaces, getSettings, putSettings,
+    type Apartment, type ApartmentDetail, type Category, type Dataset, type Destination, type MapConfig, type PlaceCollection, type Settings,
   } from "./api";
   import { basemapStyle } from "./mapStyle";
   import CategoryPanel from "./CategoryPanel.svelte";
@@ -15,6 +15,8 @@
   import ApartmentForm from "./ApartmentForm.svelte";
   import ApartmentDetailView from "./ApartmentDetail.svelte";
   import Compare from "./Compare.svelte";
+  import DestinationsPanel from "./DestinationsPanel.svelte";
+  import type { WhatIf } from "./weeklyMath";
 
   type GeoData = GeoJSONSourceSpecification["data"];
   const STATUS_COLOUR: Record<string, string> = {
@@ -28,11 +30,15 @@
   let datasets = $state<Record<string, Dataset>>({});
   let error = $state("");
   let show = $state({ rail: true, bus: false, stops: true });
-  let tab = $state<"apartments" | "places" | "compare">("apartments");
+  let tab = $state<"apartments" | "trips" | "places" | "compare">("apartments");
 
   let categories = $state<Category[]>([]);
   let places = $state<PlaceCollection>({ type: "FeatureCollection", features: [] });
   let apartments = $state<Apartment[]>([]);
+  let destinations = $state<Destination[]>([]);
+  let settings = $state<Settings>({ combined_on: false, w_place: 5, w_time: 8, w_rent: 3 });
+  let whatIf = $state<WhatIf>({});
+  let editingDest = $state(false);
   let selectedPlaceId = $state<number>();
   let selectedAptId = $state<number>();
   let detail = $state<ApartmentDetail>();
@@ -101,7 +107,7 @@
   }
 
   async function refresh() {
-    [categories, places, apartments] = await Promise.all([getCategories(), getPlaces(), getApartments()]);
+    [categories, places, apartments, destinations] = await Promise.all([getCategories(), getPlaces(), getApartments(), getDestinations()]);
     if (selectedAptId !== undefined) await loadDetail(selectedAptId);
     syncMap();
   }
@@ -130,6 +136,20 @@
     syncMap();
   }
 
+  function setWhatIf(id: number, trips: number | undefined) {
+    if (trips === undefined) {
+      const { [id]: _drop, ...rest } = whatIf;
+      whatIf = rest;
+    } else {
+      whatIf = { ...whatIf, [id]: trips };
+    }
+  }
+
+  async function changeSettings(change: Partial<Settings>) {
+    settings = { ...settings, ...change };
+    settings = await putSettings(change);
+  }
+
   function toggleCompare(id: number) {
     compare = compare.includes(id) ? compare.filter((x) => x !== id) : [...compare, id].slice(-4);
   }
@@ -147,7 +167,7 @@
   // The draggable pin is shown while the form is open with a location.
   $effect(() => {
     const at = formPin ?? (form?.apartment?.lat != null ? { lat: form.apartment.lat, lon: form.apartment.lon! } : undefined);
-    if (!map || !form || !at) {
+    if (!map || !(form || editingDest) || !at) {
       marker?.remove();
       marker = undefined;
       return;
@@ -170,7 +190,8 @@
       try {
         config = await getConfig();
         datasets = await getDatasets();
-        [categories, places, apartments] = await Promise.all([getCategories(), getPlaces(), getApartments()]);
+        [categories, places, apartments, destinations, settings] = await Promise.all([
+          getCategories(), getPlaces(), getApartments(), getDestinations(), getSettings()]);
       } catch (e) {
         error = "Could not load the map settings. Are you signed in?";
         return;
@@ -314,6 +335,7 @@
       <strong>{config?.city ?? "aptscout"}</strong>
       <nav>
         <button class:on={tab === "apartments"} onclick={() => (tab = "apartments")}>Apartments</button>
+        <button class:on={tab === "trips"} onclick={() => (tab = "trips")}>Trips{destinations.length ? ` (${destinations.length})` : ""}</button>
         <button class:on={tab === "compare"} onclick={() => (tab = "compare")}>Compare{compare.length ? ` (${compare.length})` : ""}</button>
         <button class:on={tab === "places"} onclick={() => (tab = "places")}>Places</button>
       </nav>
@@ -333,8 +355,12 @@
         <button class="primary" onclick={() => openForm()}>+ Add apartment</button>
       {/if}
       {#if !form}
-        <ApartmentTable {apartments} {categories} selectedId={selectedAptId} {compare} onselect={selectApartment} oncompare={toggleCompare} />
+        <ApartmentTable {apartments} {categories} {settings} {whatIf} onsettings={changeSettings} selectedId={selectedAptId} {compare} onselect={selectApartment} oncompare={toggleCompare} />
       {/if}
+    {:else if tab === "trips"}
+      <DestinationsPanel {destinations} {categories} {whatIf} pin={formPin} onwhatif={setWhatIf}
+        onpickpin={() => (mode = "pin")} onchange={refresh}
+        onedit={(on) => { editingDest = on; if (!on) formPin = undefined; }} />
     {:else if tab === "compare"}
       <Compare apartments={compared} onremove={toggleCompare} />
     {:else}
