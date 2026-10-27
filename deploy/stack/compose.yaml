@@ -247,9 +247,12 @@ services:
     stop_grace_period: 30s
 
   # CTA schedule routing (design 4.2). Its inputs come from
-  # `python -m aptscout build-otp-inputs` (into state/cache/otp); it builds the
-  # graph when there is none or the inputs are newer, then serves it. After a
-  # new feed: build-otp-inputs, then restart this container.
+  # `python -m aptscout build-otp-inputs` (into state/cache/otp), which the jobs
+  # service runs after every new CTA feed and OSM extract. This container
+  # builds the graph when there is none or an input is newer, serves it, and
+  # checks every five minutes: when an input has become newer than the graph
+  # it stops serving, rebuilds (minutes; the app uses its simple transit
+  # model meanwhile) and serves the new graph. Nobody restarts it by hand.
   otp:
     # opentripplanner/opentripplanner:2.10.0, multi-arch index digest
     image: opentripplanner/opentripplanner:2.10.0@sha256:8d54e5c589186707ee365417f2202dc878c451fa3001b8edff07019531100933
@@ -261,15 +264,36 @@ services:
       - -c
       - |
         cd /var/opentripplanner || exit 1
-        run() { exec java $$JAVA_OPTS -cp @/app/jib-classpath-file @/app/jib-main-class-file /var/opentripplanner/ "$$@"; }
-        until [ -f graph.obj ] || { [ -f build-config.json ] && [ -f streets.osm.pbf ] && [ -f cta-gtfs.zip ]; }; do
-          echo "aptscout-otp: waiting for the inputs (python -m aptscout build-otp-inputs)"
-          sleep 300
+        inputs="build-config.json streets.osm.pbf cta-gtfs.zip"
+        stale() {
+          [ -f graph.obj ] || return 0
+          for input in $$inputs; do [ "$$input" -nt graph.obj ] && return 0; done
+          return 1
+        }
+        run() { java $$JAVA_OPTS -cp @/app/jib-classpath-file @/app/jib-main-class-file /var/opentripplanner/ "$$@" & pid=$$!; }
+        trap 'kill $$pid 2>/dev/null; exit 0' TERM INT
+        while true; do
+          until [ -f graph.obj ] || { [ -f build-config.json ] && [ -f streets.osm.pbf ] && [ -f cta-gtfs.zip ]; }; do
+            echo "aptscout-otp: waiting for the inputs (python -m aptscout build-otp-inputs)"
+            sleep 300 & wait $$!
+          done
+          building=0 rebuild=0
+          if stale; then building=1; run --build --save --serve; else run --load --serve; fi
+          while kill -0 $$pid 2>/dev/null; do
+            sleep 300 & wait $$!
+            # while building, the graph is not saved yet, so the inputs look newer
+            if [ $$building = 1 ] && ! stale; then building=0; fi
+            if [ $$building = 0 ] && stale; then
+              echo "aptscout-otp: new inputs; rebuilding the graph"
+              kill $$pid; wait $$pid
+              rebuild=1
+              break
+            fi
+          done
+          [ $$rebuild = 1 ] && continue
+          wait $$pid
+          exit $$?
         done
-        for input in build-config.json streets.osm.pbf cta-gtfs.zip; do
-          if [ ! -f graph.obj ] || [ "$$input" -nt graph.obj ]; then run --build --save --serve; fi
-        done
-        run --load --serve
     environment:
       JAVA_OPTS: -Xmx6g
     volumes:

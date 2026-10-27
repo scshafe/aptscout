@@ -118,6 +118,25 @@ class JobsTest(unittest.TestCase):
         runs["backup"] = "2026-10-26T11:00:00"
         self.assertEqual(jobs.due(runs, now), ["backup"])
 
+    def test_a_new_feed_or_extract_refreshes_the_otp_inputs(self):
+        city = {"bbox": [0, 0, 1, 1]}
+        with unittest.mock.patch.object(jobs.datasets, "fetch_gtfs", return_value="CTA feed imported: {}"), \
+             unittest.mock.patch.object(jobs.datasets, "import_places", return_value="places"), \
+             unittest.mock.patch.object(jobs.datasets, "fetch_osm", return_value="osm"), \
+             unittest.mock.patch.object(jobs.datasets, "fetch_pools", return_value="pools"), \
+             unittest.mock.patch.object(jobs.datasets, "build_otp_inputs", return_value="inputs") as build:
+            self.assertIn("inputs", jobs.run_job("gtfs", city))
+            self.assertEqual(build.call_count, 1)
+            jobs.datasets.fetch_gtfs.return_value = "CTA feed unchanged"
+            self.assertNotIn("inputs", jobs.run_job("gtfs", city))   # nothing new, nothing rebuilt
+            self.assertEqual(build.call_count, 1)
+            self.assertIn("inputs", jobs.run_job("osm", city))
+            self.assertEqual(build.call_count, 2)
+
+    def test_otp_inputs_wait_for_the_other_download_on_a_first_start(self):
+        with unittest.mock.patch.object(jobs.datasets, "build_otp_inputs", side_effect=RuntimeError("google_transit.zip is missing")):
+            self.assertIn("not built yet", jobs.otp_inputs({}))
+
 
 @unittest.skipIf(TestClient is None, "fastapi is not installed")
 class ExportImportTest(DataDirTestCase):
