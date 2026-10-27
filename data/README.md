@@ -29,8 +29,8 @@ expired. The `jobs` service runs it weekly. After a new feed the `jobs` service 
 
 `build-tiles` needs the `pmtiles` command line tool
 ([go-pmtiles](https://github.com/protomaps/go-pmtiles)) on `PATH`. The app
-does not download and run it; the stack's `tiles` service (a pinned go-pmtiles
-image, profile `tools`) runs it: see `docs/deploy.md`.
+does not download and run it; the app image copies it from the pinned
+go-pmtiles image, and the `jobs` service runs `build-tiles` monthly.
 
 ## CTA Developer License Agreement
 

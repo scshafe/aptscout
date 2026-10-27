@@ -1,7 +1,8 @@
 """The host's scheduled work, as one long-running process (design section 14).
 
 Nightly: backup. Weekly: CTA feed check; a new feed is imported with its stops.
-Monthly: OSM extract, Park District pools, places. A new feed or extract also
+Monthly: OSM extract, Park District pools, places, and the basemap tiles (the
+newest Protomaps build cut to the city's box, swapped in atomically). A new feed or extract also
 refreshes OTP's input directory (`build-otp-inputs`); the stack's OTP container
 notices the newer inputs and rebuilds its graph. Travel times are computed on
 demand (the cache key carries the graph's version); `recompute` only warms them
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta
 
 from . import backup, config, datasets
 
-INTERVALS = {"backup": timedelta(days=1), "gtfs": timedelta(days=7), "osm": timedelta(days=30)}
+INTERVALS = {"backup": timedelta(days=1), "gtfs": timedelta(days=7), "osm": timedelta(days=30), "tiles": timedelta(days=30)}
 
 
 def _path():
@@ -67,6 +68,8 @@ def run_job(name: str, city: dict) -> str:
         return message
     if name == "osm":
         return "; ".join([datasets.fetch_osm(city), datasets.fetch_pools(city), datasets.import_places(city), otp_inputs(city)])
+    if name == "tiles":
+        return datasets.build_tiles(city)
     raise ValueError(name)
 
 

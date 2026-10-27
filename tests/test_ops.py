@@ -111,8 +111,8 @@ class BackupTest(DataDirTestCase):
 class JobsTest(unittest.TestCase):
     def test_what_is_due(self):
         now = at("2026-10-27 12:00")
-        self.assertEqual(jobs.due({}, now), ["backup", "gtfs", "osm"])
-        runs = {"backup": "2026-10-27 03:00".replace(" ", "T") + ":00", "gtfs": "2026-10-19T03:00:00", "osm": "2026-10-01T03:00:00"}
+        self.assertEqual(jobs.due({}, now), ["backup", "gtfs", "osm", "tiles"])
+        runs = {"backup": "2026-10-27 03:00".replace(" ", "T") + ":00", "gtfs": "2026-10-19T03:00:00", "osm": "2026-10-01T03:00:00", "tiles": "2026-10-01T03:00:00"}
         self.assertEqual(jobs.due(runs, now), ["gtfs"])
         runs["gtfs"] = "2026-10-26T12:00:00"
         runs["backup"] = "2026-10-26T11:00:00"
@@ -132,6 +132,12 @@ class JobsTest(unittest.TestCase):
             self.assertEqual(build.call_count, 1)
             self.assertIn("inputs", jobs.run_job("osm", city))
             self.assertEqual(build.call_count, 2)
+
+    def test_tiles_are_refreshed_monthly(self):
+        with unittest.mock.patch.object(jobs.datasets, "build_tiles", return_value="tiles built") as build:
+            self.assertEqual(jobs.run_job("tiles", {}), "tiles built")
+            build.assert_called_once_with({})
+        self.assertEqual(jobs.INTERVALS["tiles"].days, 30)
 
     def test_otp_inputs_wait_for_the_other_download_on_a_first_start(self):
         with unittest.mock.patch.object(jobs.datasets, "build_otp_inputs", side_effect=RuntimeError("google_transit.zip is missing")):

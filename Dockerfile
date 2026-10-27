@@ -7,6 +7,11 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
+# The pmtiles tool for the monthly basemap refresh (jobs): copied from the pinned
+# go-pmtiles image (protomaps/go-pmtiles v1.31.2; keep equal to the tiles service
+# in deploy/stack/compose.yaml), never downloaded by the app.
+FROM protomaps/go-pmtiles:v1.31.2@sha256:06574f01f55a78f78f887bc7ebf729a5c093c0d6e17d9876300cfcb0758b59d3 AS pmtiles
+
 FROM python:3.12.16-slim-trixie@sha256:962f801b08c870ac2a51b72bf02dae38c9a4162319e5e882ec244e198188d54e
 # libexpat1: pyosmium (osmium) links it, and the slim image lacks it
 # (import-places and build-otp-inputs read the OSM extract with it).
@@ -17,6 +22,7 @@ COPY server/requirements.txt server/requirements.txt
 RUN pip install --no-cache-dir -r server/requirements.txt
 COPY server/ server/
 COPY --from=web /web/dist web/dist
+COPY --from=pmtiles /go-pmtiles /usr/local/bin/pmtiles
 ENV PYTHONUNBUFFERED=1 APTSCOUT_DATA_DIR=/data APTSCOUT_WEB_DIST=/app/web/dist
 WORKDIR /app/server
 USER aptscout

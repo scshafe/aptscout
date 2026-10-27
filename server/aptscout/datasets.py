@@ -103,7 +103,8 @@ def _pmtiles_cli() -> str:
     """The `pmtiles` command line tool (github.com/protomaps/go-pmtiles).
 
     Not downloaded by the app: a binary fetched and run without a checksum is
-    not something to automate. The host installs it (the stack's tools image).
+    not something to automate. The image copies it from the pinned go-pmtiles
+    image (Dockerfile); elsewhere the host installs it.
     """
     found = shutil.which("pmtiles")
     if not found:
