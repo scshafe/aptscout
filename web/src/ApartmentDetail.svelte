@@ -1,6 +1,7 @@
 <script lang="ts">
   import { deleteApartment, type ApartmentDetail } from "./api";
   import { hoursMinutes } from "./weeklyMath";
+  import PhotoGrid from "./PhotoGrid.svelte";
 
   let { apt, onedit, ondeleted, onclose }: {
     apt: ApartmentDetail;
@@ -30,6 +31,8 @@
   </div>
   {#if apt.listing_url}<a href={apt.listing_url} target="_blank" rel="noopener noreferrer">Listing</a>{/if}
   {#if apt.notes}<p class="notes">{apt.notes}</p>{/if}
+
+  <PhotoGrid apartmentId={apt.id} />
 
   <h4>Weekly travel {hoursMinutes(apt.weekly.total)}</h4>
   {#if apt.lat === null}

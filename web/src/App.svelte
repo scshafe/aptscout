@@ -17,6 +17,8 @@
   import Compare from "./Compare.svelte";
   import DestinationsPanel from "./DestinationsPanel.svelte";
   import type { WhatIf } from "./weeklyMath";
+  import { discard, flush, load as loadQueue, type Queued } from "./offline";
+  import { addApartment } from "./api";
 
   type GeoData = GeoJSONSourceSpecification["data"];
   const STATUS_COLOUR: Record<string, string> = {
@@ -39,6 +41,8 @@
   let settings = $state<Settings>({ combined_on: false, w_place: 5, w_time: 8, w_rent: 3 });
   let whatIf = $state<WhatIf>({});
   let editingDest = $state(false);
+  let queued = $state<Queued[]>(loadQueue());
+  let online = $state(typeof navigator === "undefined" ? true : navigator.onLine);
   let selectedPlaceId = $state<number>();
   let selectedAptId = $state<number>();
   let detail = $state<ApartmentDetail>();
@@ -136,6 +140,13 @@
     syncMap();
   }
 
+  async function sync() {
+    if (!queued.length) return;
+    const result = await flush(addApartment);
+    queued = result.remaining;
+    if (result.sent) await refresh();
+  }
+
   function setWhatIf(id: number, trips: number | undefined) {
     if (trips === undefined) {
       const { [id]: _drop, ...rest } = whatIf;
@@ -184,6 +195,11 @@
   });
 
   onMount(() => {
+    const goOnline = () => { online = true; sync(); };
+    const goOffline = () => (online = false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    sync();
     const protocol = new Protocol();
     maplibregl.addProtocol("pmtiles", protocol.tile);
     (async () => {
@@ -220,6 +236,8 @@
       });
     })();
     return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
       marker?.remove();
       map?.remove();
       maplibregl.removeProtocol("pmtiles");
@@ -328,6 +346,7 @@
 
 <div class="app">
   <div class="map" bind:this={container}></div>
+  <button class="fab" onclick={() => openForm()} aria-label="Add apartment">+</button>
   {#if mode !== "none"}<div class="hint">{mode === "pin" ? "Click the map to place the pin" : "Click the map to place the new place"}</div>{/if}
 
   <aside class="side">
@@ -341,12 +360,26 @@
       </nav>
     </header>
     {#if error}<p class="warn">{error}</p>{/if}
+    {#if !online}<p class="warn">Offline: showing the last data. New apartments are kept on this device.</p>{/if}
+    {#if queued.length}
+      <section class="queue">
+        <strong>Waiting to sync ({queued.length})</strong>
+        {#each queued as q (q.id)}
+          <div class="qrow">
+            <span>{q.body.address || "(no address)"}{q.body.rent ? ` · $${q.body.rent}` : ""}{q.error ? ` — ${q.error}` : ""}</span>
+            <button onclick={() => (queued = discard(q.id))}>Discard</button>
+          </div>
+        {/each}
+        {#if online}<button onclick={sync}>Try now</button>{/if}
+      </section>
+    {/if}
 
     {#if tab === "apartments"}
       {#if form}
         <ApartmentForm
           apartment={form.apartment} pin={formPin}
-          onpickpin={() => (mode = "pin")} onsaved={saved} oncancel={() => { form = undefined; formPin = undefined; }}
+          onpickpin={() => (mode = "pin")} onsaved={saved}
+          onqueued={() => { queued = loadQueue(); form = undefined; formPin = undefined; }} oncancel={() => { form = undefined; formPin = undefined; }}
         />
       {:else if detail}
         <ApartmentDetailView apt={detail} onclose={closeApartment} onedit={() => openForm(apartments.find((a) => a.id === detail!.id))}
@@ -420,6 +453,9 @@
   nav { display: flex; gap: 4px; }
   nav button.on { background: var(--fg); color: var(--bg); }
   .primary { align-self: flex-start; }
+  .queue { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+  .qrow { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
+  .fab { display: none; }
   .layers { display: flex; flex-direction: column; gap: 2px; }
   .hint {
     position: absolute; left: 12px; top: calc(env(safe-area-inset-top, 0px) + 12px); z-index: 2;
@@ -431,5 +467,10 @@
   @media (max-width: 760px) {
     .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 45vh) minmax(0, 1fr) auto; grid-template-areas: "map" "side" "foot"; }
     .side { border-left: 0; border-top: 1px solid var(--line); }
+    .fab {
+      display: block; position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 44px); z-index: 5;
+      width: 52px; height: 52px; border-radius: 50%; border: 0; font-size: 28px; background: #d9531e; color: #fff;
+      box-shadow: 0 2px 8px #0006;
+    }
   }
 </style>

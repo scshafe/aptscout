@@ -1,5 +1,6 @@
 """Apartments, their scores and the address search (design sections 6, 7, 8)."""
 
+import shutil
 import sqlite3
 from datetime import datetime, timezone
 
@@ -178,6 +179,7 @@ def build_router(current_user) -> APIRouter:
         own(conn, uid, apartment_id)
         with conn:
             conn.execute("DELETE FROM apartment WHERE id = ?", (apartment_id,))
+        shutil.rmtree(config.data_dir() / "photos" / str(apartment_id), ignore_errors=True)
 
     @router.get("/geocode")
     def geocode_address(q: str = Query(min_length=3, max_length=200), ctx=Depends(me)):
