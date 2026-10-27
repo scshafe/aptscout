@@ -46,3 +46,4 @@ params = { kind = "service", name = "aptscout", date = "2026-10-27" }
 [identity]
 agent = "agent-aptscout"
 github = ["contents=write", "pull_requests=write", "issues=write", "workflows=write", "actions=write"]
+docker = true
