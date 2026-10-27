@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from . import config, gtfs
+from . import config, db, gtfs, importer
 
 USER_AGENT = "aptscout/0.1 (self-hosted apartment map; +https://github.com/scshafe/aptscout)"
 EXPIRY_WARNING_DAYS = 14
@@ -160,6 +160,56 @@ def fetch_assets(city: dict) -> str:
     return "basemap fonts and sprites fetched"
 
 
+def fetch_osm(city: dict, force: bool = False) -> str:
+    """Download the regional OSM extract (conditional on its ETag)."""
+    pbf = config.cache_dir() / "osm" / "extract.osm.pbf"
+    prev = read_versions().get("osm_extract", {})
+    headers = {}
+    if not force and pbf.exists() and prev.get("etag"):
+        headers["If-None-Match"] = prev["etag"]
+    elif not force and pbf.exists() and prev.get("last_modified"):
+        headers["If-Modified-Since"] = prev["last_modified"]
+    with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=600) as client:
+        got = _download(client, city["osm_extract_url"], pbf, headers)
+    if got is None:
+        return "OSM extract unchanged"
+    record("osm_extract", etag=got.get("etag"), last_modified=got.get("last-modified"),
+           url=city["osm_extract_url"], credit="© OpenStreetMap contributors (ODbL)")
+    return f"OSM extract fetched: {pbf.stat().st_size} bytes"
+
+
+def fetch_pools(city: dict) -> str:
+    """Download the Chicago Park District facility list (public domain)."""
+    dest = config.cache_dir() / "places" / "park_district.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=120) as client:
+        resp = client.get(city["pools_url"], params={"$where": "facility_name like '%POOL%'", "$limit": "500"})
+        resp.raise_for_status()
+    dest.write_bytes(resp.content)
+    record("park_district_pools", url=city["pools_url"], rows=len(resp.json()),
+           credit="Chicago Park District (City of Chicago data portal, public domain; 2016 list)")
+    return f"Park District facilities fetched: {len(resp.json())} rows"
+
+
+def import_places(city: dict) -> str:
+    """Import OSM places, the Park District pools and the CTA stops into the database."""
+    conn = db.connect()
+    lines = []
+    pbf = config.cache_dir() / "osm" / "extract.osm.pbf"
+    if pbf.exists():
+        lines.append(f"osm: {importer.import_osm(conn, pbf, city['bbox'])}")
+    else:
+        lines.append("osm: no extract in the cache (run fetch-osm); skipped")
+    pools = config.cache_dir() / "places" / "park_district.json"
+    if pools.exists():
+        lines.append(f"park district: {importer.import_pools(conn, json.loads(pools.read_text(encoding='utf-8')))}")
+    else:
+        lines.append("park district: not fetched (run fetch-pools); skipped")
+    if (config.cache_dir() / "cta" / "stops.geojson").exists():
+        lines.append(f"cta stops: {importer.import_cta_stops(conn)}")
+    return "\n".join(lines)
+
+
 def status() -> dict:
     versions = read_versions()
     cta = versions.get("cta_gtfs")
@@ -174,6 +224,9 @@ def main(argv: list[str]) -> int:
         "import-gtfs": import_gtfs,
         "build-tiles": build_tiles,
         "fetch-assets": fetch_assets,
+        "fetch-osm": fetch_osm,
+        "fetch-pools": fetch_pools,
+        "import-places": import_places,
     }
     if len(argv) != 1 or argv[0] not in (*commands, "status"):
         print("usage: python -m aptscout <" + "|".join((*commands, "status")) + ">", file=sys.stderr)

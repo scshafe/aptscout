@@ -84,7 +84,8 @@ see below):
 
 | Category | OSM tags |
 | --- | --- |
-| Grocery | `shop=supermarket`, `shop=greengrocer`, `shop=convenience` (convenience off by default) |
+| Grocery | `shop=supermarket`, `shop=greengrocer` |
+| Convenience store | `shop=convenience` (a separate category, hidden by default) |
 | Gym | `leisure=fitness_centre`, `leisure=sports_centre` with `sport=fitness` |
 | Lap pool | see 3.3 |
 | Park | `leisure=park` (polygons use the centroid and nearest edge) |
@@ -92,7 +93,7 @@ see below):
 | Cafe | `amenity=cafe` |
 | Library | `amenity=library` |
 | Laundromat | `shop=laundry` |
-| Transit stop | from the CTA feed (3.4), not OSM |
+| CTA rail station, CTA bus stop | from the CTA feed (3.4), not OSM |
 
 The first milestone ships grocery, gym, lap pool and transit; the others are
 data rows, added by editing the category table.
@@ -361,10 +362,15 @@ edited in one settings page, and the table updates live.
 SQLite, one file; tables (names illustrative, columns the point):
 
 - `user(id, oidc_subject, name)`
-- `category(id, name, colour, icon, osm_filter, weight, measure, d_good,
-  d_max, aggregation, builtin, visible)`
-- `place(id, category_id, name, lat, lon, osm_id, source, state
-  [unreviewed/confirmed/rejected], favourite, edited, notes, address)`
+- `category(id, owner_id, key, name, colour, icon, weight, measure, d_good,
+  d_max, aggregation, builtin, visible)` (the shipped categories are copied
+  to each owner at first sign-in; the OSM tag mapping lives in code)
+- `place(id, category_key, owner_id, ext_id, source, name, lat, lon, address,
+  lap_score, also, edited, gone, notes)`: imported rows have no owner and an
+  `ext_id` (`osm:n123`, `cta:40001`, `pd:...`); the owner's own places carry
+  the owner
+- `place_mark(owner_id, place_id, state [unreviewed/confirmed/rejected],
+  favourite, hidden, notes)`: the owner's view of a place
 - `apartment(id, owner_id, label, address, unit, lat, lon, location_source,
   rent, rent_includes, fees, deposit, beds, baths, sqft, floor,
   floors_in_building, facing, lease_months, available_from, pets, laundry,

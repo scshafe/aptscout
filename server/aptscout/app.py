@@ -13,7 +13,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, datasets
+from . import config, datasets, places_api
 
 OVERLAYS = ("rail", "bus", "stops")
 
@@ -39,6 +39,8 @@ def create_app(web_dist: Path | None = None) -> FastAPI:
     app = FastAPI(title="aptscout", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(_GzipExceptTiles, minimum_size=1024)
     city = config.load_city()
+
+    app.include_router(places_api.build_router(current_user))
 
     @app.get("/healthz")
     def healthz():

@@ -1,7 +1,7 @@
 # web
 
 The map and comparison UI (TypeScript, Vite, Svelte 5, MapLibre GL JS with
-the PMTiles protocol). Design: `docs/design.md` section 8. Today (M1): the
+the PMTiles protocol). Design: `docs/design.md` section 8. Today (M2): places by category with toggles, lap pool candidates to confirm or reject, favourites, notes, adding places and categories; the
 basemap from the server's PMTiles file, the CTA rail and bus lines and stops
 with toggles, attribution and the CTA feed validity footer.
 
