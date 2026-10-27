@@ -1,9 +1,16 @@
 # web
 
-The map and comparison UI: labelled places by category, the CTA bus and rail
-lines, the apartments under consideration, and a side-by-side comparison.
-Usable on a phone.
+The map and comparison UI (TypeScript, Vite, Svelte 5, MapLibre GL JS with
+the PMTiles protocol). Design: `docs/design.md` section 8. Today (M1): the
+basemap from the server's PMTiles file, the CTA rail and bus lines and stops
+with toggles, attribution and the CTA feed validity footer.
 
-Placeholder. Nothing is built here until the owner accepts the design
-(`docs/design.md`). The web stack, the map library and the tile source are
-open questions in [docs/brief.md](../docs/brief.md).
+```sh
+npm ci
+npm run dev      # proxies /api, /tiles and /basemap-assets to the server on :8000
+npm run check    # svelte-check
+npm run build    # writes dist/, which the server serves
+```
+
+No outside host is contacted by the browser: fonts, sprites, tiles and
+libraries are all served by the app (design section 12).

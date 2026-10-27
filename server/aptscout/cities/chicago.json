@@ -1,0 +1,10 @@
+{
+  "name": "Chicago",
+  "center": [-87.65, 41.88],
+  "zoom": 11,
+  "bbox": [-88.0, 41.6, -87.5, 42.1],
+  "gtfs_url": "https://www.transitchicago.com/downloads/sch_data/google_transit.zip",
+  "gtfs_credit": "Data provided by Chicago Transit Authority",
+  "protomaps_builds": "https://build.protomaps.com/",
+  "assets_ref": "028c18f713baecad011301ff7a69acc39bcc2ae7"
+}
